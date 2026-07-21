@@ -31,7 +31,9 @@ const NCR_SAMPLES = (() => {
       defect_type: defects[i % defects.length], defect_qty: ((i * 7) % 28) + 2,
       cause: causes[i % causes.length], charge_dept: '생산팀',
       action: '조치 진행', action_type: actions[i % actions.length],
-      worker: workers[i % workers.length], status: i % 3 === 0 ? '처리중' : '완료',
+      worker: workers[i % workers.length], owner: workers[i % workers.length],
+      isolate_qty: ((i * 7) % 28) + 2, scrap_qty: i % 3 === 0 ? 0 : ((i * 7) % 28) + 2,
+      progress: i % 3 === 0 ? '조치중' : '완료', status: i % 3 === 0 ? '처리중' : '완료',
     });
   });
   return rows;
@@ -235,6 +237,24 @@ export const SEED = {
     { verify_no: 'TV-2607-001', verify_date: d(-1), verify_type: '교체후', tool_code: 'T-001', tool_name: '엔드밀 Ø10', lot_no: 'T001-260715-01', machine_no: 'MCT-01', wo_no: 'WO-2607-001', item_code: 'P-MCT-01', inspect_item: '내경 Ø25', spec_value: '25.0', tolerance: '0.02', measured: '25.008', judgment: 'OK', worker: '최품질' },
     { verify_no: 'TV-2607-002', verify_date: d(-1), verify_type: '교체후N개', tool_code: 'T-001', tool_name: '엔드밀 Ø10', lot_no: 'T001-260715-01', machine_no: 'MCT-01', wo_no: 'WO-2607-001', item_code: 'P-MCT-01', inspect_item: '내경 Ø25 (5개 후)', spec_value: '25.0', tolerance: '0.02', measured: '25.012', judgment: 'OK', worker: '최품질' },
   ],
+  // 검사규격 마스터 (개정 단위) — 승인된 최신본만 검사화면에 적용
+  inspection_specs: [
+    { spec_no: 'IS-2607-001', item_code: 'M-AL-6061', item_name: 'AL6061 환봉 Ø130', inspect_type: '수입검사', rev: '00', apply_date: d(-60), drawing_no: '', writer: '최품질', reviewer: '김용식', approver: '김용식', approve_date: d(-58), approval_status: '승인', use_yn: true },
+    { spec_no: 'IS-2607-002', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', inspect_type: '공정검사', rev: '01', apply_date: d(-30), drawing_no: 'DWG-MCT01-A', writer: '최품질', reviewer: '박생산', approver: '김용식', approve_date: d(-28), approval_status: '승인', use_yn: true, prev_spec_no: 'IS-2607-000' },
+    { spec_no: 'IS-2607-003', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', inspect_type: '출하검사', rev: '00', apply_date: d(-45), drawing_no: 'DWG-MCT01-A', writer: '최품질', approver: '김용식', approve_date: d(-44), approval_status: '승인', use_yn: true },
+    { spec_no: 'IS-2607-004', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', process: '용접', inspect_type: '공정검사', rev: '00', apply_date: d(-20), writer: '최품질', approval_status: '승인', approver: '김용식', approve_date: d(-19), use_yn: true },
+  ],
+  inspection_spec_items: [
+    { spec_no: 'IS-2607-001', seq: 10, inspect_item: '외경', unit: 'mm', eval_method: '정량적', spec_value: '130', lsl: 129.5, usl: 130.5, tolerance: '0.5', method: '버니어캘리퍼스', instrument: 'MI-001', inspect_cycle: '1회/LOT', sample_size: '3', char_type: '일반' },
+    { spec_no: 'IS-2607-001', seq: 20, inspect_item: '표면상태', eval_method: '정성적', spec_value: '흠집·부식 없음', method: '육안', inspect_cycle: '전수', char_type: '일반' },
+    { spec_no: 'IS-2607-002', seq: 10, inspect_item: '내경 Ø25', unit: 'mm', eval_method: '정량적', spec_value: '25.0', lsl: 24.98, usl: 25.02, tolerance: '0.02', method: '3차원측정', instrument: 'MI-003', inspect_cycle: '초·중·종물', sample_size: '3', char_type: '특별특성' },
+    { spec_no: 'IS-2607-002', seq: 20, inspect_item: '전장 120', unit: 'mm', eval_method: '정량적', spec_value: '120.0', lsl: 119.95, usl: 120.05, tolerance: '0.05', method: '3차원측정', instrument: 'MI-003', inspect_cycle: '초·중·종물', sample_size: '3', char_type: '중요특성' },
+    { spec_no: 'IS-2607-002', seq: 30, inspect_item: 'BURR 상태', eval_method: '정성적', spec_value: 'BURR 없음', method: '육안', inspect_cycle: '전수', char_type: '일반' },
+    { spec_no: 'IS-2607-003', seq: 10, inspect_item: '전장 120', unit: 'mm', eval_method: '정량적', spec_value: '120.0', lsl: 119.95, usl: 120.05, tolerance: '0.05', method: '버니어캘리퍼스', instrument: 'MI-001', inspect_cycle: '1회/LOT', sample_size: '5', char_type: '중요특성' },
+    { spec_no: 'IS-2607-003', seq: 20, inspect_item: '외관/BURR', eval_method: '정성적', spec_value: 'BURR·스크래치 없음', method: '육안', inspect_cycle: '전수', char_type: '일반' },
+    { spec_no: 'IS-2607-004', seq: 10, inspect_item: '용접비드 외관', eval_method: '정성적', spec_value: '기공·언더컷 없음', method: '육안', inspect_cycle: '초·중·종물', char_type: '특별특성' },
+    { spec_no: 'IS-2607-004', seq: 20, inspect_item: '용접부 폭', unit: 'mm', eval_method: '정량적', spec_value: '4.0', lsl: 3.5, usl: 4.5, tolerance: '0.5', method: '용접게이지', inspect_cycle: '초·중·종물', sample_size: '2', char_type: '중요특성' },
+  ],
   inspection_standards: [
     { std_no: 'IS-001', item_code: 'M-AL-6061', item_name: 'AL6061 환봉 Ø130', inspect_type: '수입검사', eval_method: '정량적', inspect_item: '외경', spec_value: '130', tolerance: '0.5', method: '버니어캘리퍼스', equipment: '버니어캘리퍼스', use_yn: true },
     { std_no: 'IS-002', item_code: 'M-AL-6061', item_name: 'AL6061 환봉 Ø130', inspect_type: '수입검사', eval_method: '정성적', inspect_item: '표면상태', spec_value: '흠집·부식 없음', tolerance: '', method: '육안', equipment: '', use_yn: true },
@@ -269,11 +289,11 @@ export const SEED = {
     { inspect_no: 'PI-2607-002', inspect_kind: '공정검사', item_code: 'P-MCT-01', inspect_item: '전장 120', eval_method: '정량적', spec_value: '120.0', tolerance: '0.05', measured: '119.98', judgment: 'OK' },
   ],
   nonconformances: [
-    { ncr_no: 'NC-2607-001', occur_date: d(-2), ncr_type: '공정부적합', process: 'MCT가공', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', lot_no: 'LOT-WO-2607-001', defect_type: '치수불량', defect_qty: 3, cause: '공구마모', charge_dept: '생산팀', action: '공구교체 후 재작업', action_type: '재작업', worker: '박생산', status: '완료' },
+    { ncr_no: 'NC-2607-001', occur_date: d(-2), ncr_type: '공정부적합', source_type: '공정검사', source_no: 'PI-2607-001', process: 'MCT가공', equipment: 'MCT-01', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', lot_no: 'LOT-WO-2607-001', defect_type: '치수불량', defect_qty: 3, isolate_qty: 3, rework_qty: 3, cause: '공구마모로 내경 치수 초과', charge_dept: '생산팀', action: '공구교체 후 재작업', action_type: '재작업', worker: '박생산', owner: '박생산', due_date: d(3), progress: '완료', status: '완료' },
     ...NCR_SAMPLES,
   ],
   improvement_actions: [
-    { imp_no: 'CA-2607-001', reg_date: d(-1), ncr_no: 'NC-2607-001', title: '치수불량 개선대책 — MCT 하우징', cause_analysis: '엔드밀 수명 관리 미흡으로 마모 상태에서 가공 지속', action_plan: '공구 교체알람횟수 설정(450회) 및 교체 후 치수검증 의무화', action_type: '시정조치', owner: '박생산', due_date: d(7), status: '진행중' },
+    { imp_no: 'CA-2607-001', reg_date: d(-1), ncr_no: 'NC-2607-001', title: '치수불량 개선대책 — MCT 하우징', cause_analysis: 'Man: 교체시점 판단 작업자 재량 / Machine: 공구 수명 알람 미설정 / Method: 교체 후 검증 절차 부재', temp_action: '해당 LOT 전수 선별, 후속 LOT 초물검사 강화', root_action: '공구 교체알람횟수 450회 설정 + 교체 후 치수검증(3개) 의무화', action_plan: '공구 교체알람횟수 설정(450회) 및 교체 후 치수검증 의무화', action_type: '시정조치', owner: '박생산', due_date: d(7), status: '진행중', horizontal: 'P-CNC-01 동일 공정 수평전개 검토 중' },
   ],
   four_m_changes: [
     { fm_no: '4M-2607-001', change_date: d(-5), category: 'Machine', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', before_desc: 'MCT-01 1호기 단독 가공', after_desc: 'MCT-02 2호기 병행 가공 추가', reason: '수주량 증가 대응', ppap_yn: true, approver: '관리자', status: '승인' },
@@ -282,9 +302,9 @@ export const SEED = {
     { ppap_no: 'PPAP-2607-001', submit_date: d(-3), customer: 'DOOWON', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', level: 'Level 3', reason: '4M변경', fm_no: '4M-2607-001', docs: 'PSW, 치수측정결과, Cpk, 관리계획서', approver: '', status: '제출' },
   ],
   dev_docs: [
-    { doc_no: 'DOC-2607-001', doc_type: 'PFMEA', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', rev: 'B', title: 'MCT 하우징 공정 PFMEA', writer: '최품질', write_date: d(-30), approver: '관리자', approve_date: d(-25), status: '승인' },
-    { doc_no: 'DOC-2607-002', doc_type: 'PFD', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: '', rev: 'A', title: 'MCT 하우징 공정흐름도', writer: '최품질', write_date: d(-30), approver: '관리자', approve_date: d(-25), status: '승인' },
-    { doc_no: 'DOC-2607-003', doc_type: '관리계획서', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: '', rev: 'A', title: 'MCT 하우징 관리계획서', writer: '최품질', write_date: d(-28), approver: '관리자', approve_date: d(-24), status: '승인' },
+    { doc_no: 'DOC-2607-001', doc_type: 'PFMEA', customer: 'DOOWON', part_no: 'DW-MCT-01', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', rev: 'B', title: 'MCT 하우징 공정 PFMEA', writer: '최품질', write_date: d(-30), approver: '관리자', approve_date: d(-25), status: '승인' },
+    { doc_no: 'DOC-2607-002', doc_type: 'PFD', customer: 'DOOWON', part_no: 'DW-MCT-01', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: '', rev: 'A', title: 'MCT 하우징 공정흐름도', writer: '최품질', write_date: d(-30), approver: '관리자', approve_date: d(-25), status: '승인' },
+    { doc_no: 'DOC-2607-003', doc_type: '관리계획서', customer: 'DOOWON', part_no: 'DW-MCT-01', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: '', rev: 'A', title: 'MCT 하우징 관리계획서', writer: '최품질', write_date: d(-28), approver: '관리자', approve_date: d(-24), status: '승인' },
     { doc_no: 'DOC-2607-004', doc_type: '작업표준서', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', process: 'PIPE성형', rev: 'A', title: 'PIPE 성형 작업표준서', writer: '박생산', write_date: d(-20), approver: '', status: '작성중' },
   ],
   measuring_instruments: [
@@ -297,8 +317,8 @@ export const SEED = {
     { cal_no: 'CAL-2606-001', cal_date: d(-40), inst_code: 'MI-001', inst_name: '버니어캘리퍼스', cal_type: '외부교정', agency: '한국계측기술원', result: '합격', cert_no: 'KCT-26-0192', cost: 45000, next_date: d(325), worker: '최품질' },
   ],
   gauge_rr: [
-    { rr_no: 'RR-2606-001', eval_date: d(-20), inst_code: 'MI-002', inst_name: '마이크로미터', item_code: 'P-MCT-01', characteristic: '내경 Ø25', appraisers: 3, parts: 10, trials: 3, grr_percent: 8.4, ndc: 6, judgment: '적합', evaluator: '최품질', status: '완료' },
-    { rr_no: 'RR-2607-001', eval_date: d(-5), inst_code: 'MI-001', inst_name: '버니어캘리퍼스', item_code: 'P-PIPE-01', characteristic: '전장 850', appraisers: 3, parts: 10, trials: 3, grr_percent: 18.2, ndc: 4, judgment: '조건부', evaluator: '최품질', status: '완료' },
+    { rr_no: 'RR-2606-001', eval_date: d(-20), reg_no: 'RRM-2607-001', inst_code: 'MI-002', inst_name: '마이크로미터', item_code: 'P-MCT-01', process: 'MCT가공', inspect_item: '내경 Ø25', characteristic: '내경 Ø25', appraisers: 3, parts: 10, trials: 3, repeatability: 0.0032, reproducibility: 0.0014, grr_percent: 8.4, ndc: 6, judgment: '적합', evaluator: '최품질', status: '완료' },
+    { rr_no: 'RR-2607-001', eval_date: d(-5), inst_code: 'MI-001', inst_name: '버니어캘리퍼스', item_code: 'P-PIPE-01', process: '용접', inspect_item: '전장 850', characteristic: '전장 850', appraisers: 3, parts: 10, trials: 3, repeatability: 0.0180, reproducibility: 0.0092, grr_percent: 18.2, ndc: 4, judgment: '조건부', evaluator: '최품질', status: '완료', improve_action: '측정 기준면 지그 도입 후 재평가 예정' },
   ],
   wps_docs: [
     { wps_no: 'WPS-001', rev: 'A', title: 'AL5052 파이프 TIG 용접', welding_process: 'GTAW(TIG)', position: '1G', base_metal: 'AL 5052-H32', filler_metal: 'ER5356', shielding_gas: 'Ar 100%', current_range: '90~130', voltage_range: '12~16', travel_speed: '15~25 cm/min', preheat_temp: '상온', pqr_no: 'PQR-001', writer: '김용접', write_date: d(-60), approver: '관리자', status: '승인' },
@@ -319,11 +339,52 @@ export const SEED = {
     { code: 'QF-02', category: '내부실패비용', name: '재작업비용', calc_basis: '재작업 공수 × 임률', use_yn: true },
     { code: 'QF-03', category: '외부실패비용', name: '클레임비용', calc_basis: '고객 클레임 배상액', use_yn: true },
   ],
+  qcost_details: [
+    { detail_code: 'QP-D01', cost_code: 'QP-01', category: '예방비용', name: '품질교육비', calc_type: '직접금액', account: '교육훈련비', dept: '품질팀', sort_no: 10, use_yn: true },
+    { detail_code: 'QP-D02', cost_code: 'QP-02', category: '예방비용', name: '예방정비비', calc_type: '직접금액', account: '수선비', dept: '생산팀', sort_no: 20, use_yn: true },
+    { detail_code: 'QA-D01', cost_code: 'QA-01', category: '평가비용', name: '검사인건비', calc_type: '시간기준', unit_price: 25000, account: '급여', dept: '품질팀', auto_link: '검사', sort_no: 30, use_yn: true },
+    { detail_code: 'QA-D02', cost_code: 'QA-02', category: '평가비용', name: '검교정비', calc_type: '직접금액', account: '지급수수료', dept: '품질팀', sort_no: 40, use_yn: true },
+    { detail_code: 'QIF-D01', cost_code: 'QF-01', category: '내부실패비용', name: '폐기비용', calc_type: '수량기준', unit_price: 8500, account: '재료비', dept: '생산팀', auto_link: '폐기', sort_no: 50, use_yn: true },
+    { detail_code: 'QIF-D02', cost_code: 'QF-02', category: '내부실패비용', name: '재작업비용', calc_type: '시간기준', unit_price: 22000, account: '노무비', dept: '생산팀', auto_link: '재작업', sort_no: 60, use_yn: true },
+    { detail_code: 'QEF-D01', cost_code: 'QF-03', category: '외부실패비용', name: '클레임 배상비', calc_type: '직접금액', account: '잡손실', dept: '품질팀', auto_link: '클레임', sort_no: 70, use_yn: true },
+  ],
   qcost_records: [
-    { rec_no: 'QC-2606-001', cost_ym: ym(-1), cost_code: 'QP-01', cost_name: '품질교육비', category: '예방비용', amount: 500000, dept: '품질팀', writer: '최품질' },
-    { rec_no: 'QC-2606-002', cost_ym: ym(-1), cost_code: 'QA-01', cost_name: '검사인건비', category: '평가비용', amount: 2800000, dept: '품질팀', writer: '최품질' },
-    { rec_no: 'QC-2606-003', cost_ym: ym(-1), cost_code: 'QF-01', cost_name: '폐기비용', category: '내부실패비용', amount: 620000, dept: '생산팀', writer: '최품질' },
-    { rec_no: 'QC-2606-004', cost_ym: ym(-1), cost_code: 'QF-03', cost_name: '클레임비용', category: '외부실패비용', amount: 0, dept: '품질팀', writer: '최품질' },
+    { rec_no: 'QC-2606-001', cost_date: d(-35), cost_ym: ym(-1), detail_code: 'QP-D01', detail_name: '품질교육비', cost_code: 'QP-01', cost_name: '품질교육비', category: '예방비용', calc_type: '직접금액', amount: 500000, dept: '품질팀', writer: '최품질' },
+    { rec_no: 'QC-2606-002', cost_date: d(-33), cost_ym: ym(-1), detail_code: 'QA-D01', detail_name: '검사인건비', cost_code: 'QA-01', cost_name: '검사인건비', category: '평가비용', calc_type: '시간기준', work_hours: 112, hour_rate: 25000, amount: 2800000, dept: '품질팀', writer: '최품질' },
+    { rec_no: 'QC-2606-003', cost_date: d(-30), cost_ym: ym(-1), detail_code: 'QIF-D01', detail_name: '폐기비용', cost_code: 'QF-01', cost_name: '폐기비용', category: '내부실패비용', calc_type: '수량기준', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', qty: 73, unit_price: 8500, amount: 620500, dept: '생산팀', writer: '최품질' },
+    { rec_no: 'QC-2607-001', cost_date: d(-5), cost_ym: ym(0), detail_code: 'QIF-D02', detail_name: '재작업비용', cost_code: 'QF-02', cost_name: '재작업비용', category: '내부실패비용', calc_type: '시간기준', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', lot_no: 'LOT-WO-2607-001', ncr_no: 'NC-2607-001', work_hours: 6, hour_rate: 22000, amount: 132000, dept: '생산팀', writer: '박생산' },
+    { rec_no: 'QC-2607-002', cost_date: d(-3), cost_ym: ym(0), detail_code: 'QA-D02', detail_name: '검교정비', cost_code: 'QA-02', cost_name: '검교정비', category: '평가비용', calc_type: '직접금액', amount: 450000, dept: '품질팀', writer: '최품질' },
+    { rec_no: 'QC-2607-003', cost_date: d(-1), cost_ym: ym(0), detail_code: 'QP-D01', detail_name: '품질교육비', cost_code: 'QP-01', cost_name: '품질교육비', category: '예방비용', calc_type: '직접금액', amount: 350000, dept: '품질팀', writer: '최품질' },
+  ],
+  // 개발문서 상세 (PFMEA / PFD / 관리계획서)
+  pfd_items: [
+    { doc_no: 'DOC-2607-002', seq: 10, process_code: 'OP10', process_name: 'MCT가공', process_type: '가공', equipment: 'MCT-01', input_item: 'AL6061 환봉 Ø130', output_item: 'MCT 하우징 반제품', inspect_yn: false },
+    { doc_no: 'DOC-2607-002', seq: 20, process_code: 'OP70', process_name: '외주 열처리', process_type: '외주', equipment: '', input_item: 'MCT 하우징 반제품', output_item: '열처리품', inspect_yn: false },
+    { doc_no: 'DOC-2607-002', seq: 30, process_code: 'OP20', process_name: 'CNC가공', process_type: '가공', equipment: 'CNC-01', input_item: '열처리품', output_item: 'MCT 하우징 가공품', inspect_yn: false },
+    { doc_no: 'DOC-2607-002', seq: 40, process_code: 'OP90', process_name: '검사', process_type: '검사', equipment: 'CMM-01', input_item: 'MCT 하우징 가공품', output_item: '합격품', inspect_yn: true },
+  ],
+  pfmea_items: [
+    { doc_no: 'DOC-2607-001', seq: 10, process: 'MCT가공', func: '내경 Ø25 가공', fail_mode: '내경 치수 초과', fail_effect: '조립 불가 (고객 라인 정지)', severity: 8, fail_cause: '공구 마모', occurrence: 4, prevent_ctrl: '공구 교체알람 450회 설정', detect_ctrl: '초·중·종물 3차원측정', detection: 3, rpn: 96, char_type: '특별특성', action_plan: '교체 후 치수검증 의무화', action_owner: '박생산', after_sev: 8, after_occ: 2, after_det: 3, after_rpn: 48 },
+    { doc_no: 'DOC-2607-001', seq: 20, process: 'MCT가공', func: '전장 120 가공', fail_mode: '전장 미달', fail_effect: '조립 간섭', severity: 6, fail_cause: '셋업 오류', occurrence: 3, prevent_ctrl: '작업표준서 셋업 체크리스트', detect_ctrl: '초물검사', detection: 3, rpn: 54, char_type: '중요특성' },
+    { doc_no: 'DOC-2607-001', seq: 30, process: 'CNC가공', func: '외경 마무리', fail_mode: '표면 거칠기 불량', fail_effect: '외관 불량', severity: 4, fail_cause: '이송속도 과다', occurrence: 3, prevent_ctrl: '가공조건 표준화', detect_ctrl: '육안검사', detection: 4, rpn: 48, char_type: '일반' },
+  ],
+  control_plan_items: [
+    { doc_no: 'DOC-2607-003', seq: 10, process: 'MCT가공', ctrl_item: '내경 Ø25', char_type: '특별특성', spec_value: '25.0 ±0.02', ctrl_method: '3차원측정', inspect_cycle: '초·중·종물', sample_size: '3', instrument: 'MI-003', reaction_plan: '설비정지 후 보고' },
+    { doc_no: 'DOC-2607-003', seq: 20, process: 'MCT가공', ctrl_item: '전장 120', char_type: '중요특성', spec_value: '120.0 ±0.05', ctrl_method: '3차원측정', inspect_cycle: '초·중·종물', sample_size: '3', instrument: 'MI-003', reaction_plan: '전수선별' },
+    { doc_no: 'DOC-2607-003', seq: 30, process: 'CNC가공', ctrl_item: '외경 표면조도', char_type: '일반', spec_value: 'Ra 1.6 이하', ctrl_method: '육안·조도계', inspect_cycle: '1회/LOT', sample_size: '2', instrument: '', reaction_plan: '재작업' },
+  ],
+  work_std_steps: [
+    { doc_no: 'DOC-2607-004', seq: 10, step_name: '1. 소재 장착', method: '파이프를 벤딩지그에 삽입하고 스토퍼까지 밀착', condition: '클램프압 0.5MPa', tools_used: 'T-004 벤딩지그', quality_check: '스토퍼 밀착 확인', caution: '클램프 작동 시 손 주의', reaction: '미밀착 시 재장착' },
+    { doc_no: 'DOC-2607-004', seq: 20, step_name: '2. 벤딩 성형', method: '자동 사이클 시작 버튼 2초 누름', condition: '벤딩각 90°±0.5, 속도 30%', tools_used: 'PIPE-01', quality_check: '벤딩각 게이지 확인 (초·중·종물)', caution: '성형 중 접근 금지', reaction: '각도 이탈 시 설비정지 후 보고' },
+    { doc_no: 'DOC-2607-004', seq: 30, step_name: '3. 취출·적치', method: '성형품을 취출하여 지정 대차에 적치', condition: '', tools_used: '', quality_check: '외관 흠집·찌그러짐 확인', caution: '낙하 주의', reaction: '외관 불량 시 부적합 등록' },
+  ],
+  // Gauge R&R 관리대장 / 계획
+  grr_registers: [
+    { reg_no: 'RRM-2607-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: 'MCT가공', inspect_item: '내경 Ø25', inst_code: 'MI-002', inst_name: '마이크로미터', appraisers: 3, parts: 10, trials: 3, eval_std: 'AIAG MSA 4th', judge_std: '%GRR<10 적합, 10~30 조건부, >30 부적합', cycle_months: 12, use_yn: true },
+    { reg_no: 'RRM-2607-002', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', process: '용접', inspect_item: '전장 850', inst_code: 'MI-001', inst_name: '버니어캘리퍼스', appraisers: 3, parts: 10, trials: 3, cycle_months: 12, use_yn: true },
+  ],
+  grr_plans: [
+    { plan_no: 'RRP-2607-001', reg_no: 'RRM-2607-002', plan_date: d(7), item_code: 'P-PIPE-01', inspect_item: '전장 850', inst_code: 'MI-001', appraiser_list: '최품질,박생산,이현장', parts: 10, trials: 3, owner: '최품질', status: '계획' },
   ],
   equipment_histories: [
     { hist_no: 'EH-2606-001', hist_date: d(-12), equip_code: 'CNC-02', equip_name: 'CNC 선반 2호기', hist_type: '고장수리', content: '주축 베어링 소음 — 베어링 교체', parts: '주축 베어링 SET', cost: 850000, downtime_min: 480, worker: '박생산' },

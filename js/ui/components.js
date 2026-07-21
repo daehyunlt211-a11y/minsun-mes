@@ -78,6 +78,22 @@ const STATUS_MAP = {
   '처리중': 'warning',
   '폐기': 'danger', '재작업': 'warning', '특채': 'info', '반품': 'neutral',
   '사용': 'success', '미사용': 'neutral',
+  // 문서 승인 흐름
+  '작성중': 'neutral', '검토중': 'warning', '승인': 'success', '반려': 'danger', '제출': 'info', '개정': 'warning',
+  '신청': 'neutral', '조건부승인': 'warning',
+  // 부적합 진행상태
+  '발생': 'danger', '식별·격리': 'warning', '처리결정': 'info', '조치중': 'warning',
+  // 공정검사 구분
+  '초물': 'info', '중물': 'neutral', '종물': 'brand',
+  // 판정
+  '적합': 'success', '조건부': 'warning', '부적합': 'danger',
+  // 자격/교정
+  '유효': 'success', '만료임박': 'warning', '만료': 'danger',
+  '교정예정': 'warning', '기한초과': 'danger', '수리중': 'warning', '사용중지': 'neutral',
+  // 공구 상태
+  '가용': 'success', '사용중': 'warning', '수명초과': 'danger', '중지': 'neutral',
+  // 특성
+  '일반': 'neutral', '중요특성': 'warning', '특별특성': 'danger',
 };
 export function badge(text, tone) {
   const t = tone || STATUS_MAP[text] || 'brand';

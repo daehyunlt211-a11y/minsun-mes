@@ -6,19 +6,22 @@ import * as prod from './pages/production.js';
 import * as mat from './pages/material.js';
 import * as pur from './pages/purchase.js';
 import * as tool from './pages/tool.js';
-import * as qa from './pages/quality.js';
-import * as qms from './pages/qms.js';
 import * as cms from './pages/cms.js';
+import * as devDocs from './pages/devDocs.js';
+import * as change from './pages/change.js';
+import * as measure from './pages/measure.js';
+import * as weld from './pages/welding.js';
+import * as qcost from './pages/qcost.js';
 import { sqReport, lotTrace } from './pages/kpi.js';
 import { popList, popDetail } from './pages/pop.js';
 import { itemRouting } from './pages/routing.js';
 import { processMaster } from './pages/processMaster.js';
-import { incomingInspection, shippingInspection } from './pages/inspection.js';
+import { incomingInspection, processInspection, shippingInspection } from './pages/inspection.js';
+import { inspectionSpecs } from './pages/inspectionSpec.js';
+import { nonconformances, improvementActions } from './pages/nonconformance.js';
 import { departmentManager } from './pages/department.js';
-import { inspectionStandards } from './pages/inspectionStandard.js';
 import { ncrStatus } from './pages/ncrStatus.js';
 import { bomManager } from './pages/bom.js';
-import { toolStock } from './pages/toolStock.js';
 import { incomingStatus, shippingStatus, salesStatus, deliveryStatus } from './pages/statusView.js';
 import { designSpecHome, designSpecDetail } from './pages/designSpec.js';
 
@@ -72,51 +75,71 @@ export const MENU = [
     ],
   },
   {
-    id: 'tool', label: '공구관리', icon: 'tool', children: [
+    id: 'tool', label: '공구 및 툴관리', icon: 'tool', children: [
+      { label: '기준정보등록', path: '/tool/master' },
+      { label: '입고관리', path: '/tool/inbounds' },
       { label: '재고관리', path: '/tool/stocks' },
-      { label: '입·출고·회수관리', path: '/tool/movements' },
+      { label: '출고·회수관리', path: '/tool/issues' },
+      { label: '재고조정', path: '/tool/adjustments' },
       { label: '폐기관리', path: '/tool/disposals' },
       { label: '치수검증', path: '/tool/verifications' },
     ],
   },
   {
-    id: 'quality', label: '품질관리', icon: 'shield', children: [
+    id: 'quality', label: '검사관리', icon: 'shield', children: [
       { label: '검사규격관리', path: '/quality/standards' },
-      { label: '수입검사', path: '/quality/incoming' },
+      { label: '수입검사관리', path: '/quality/incoming' },
       { label: '수입검사현황', path: '/quality/incoming-status' },
-      { label: '공정검사', path: '/quality/process' },
-      { label: '출하검사', path: '/quality/shipping' },
+      { label: '공정검사관리', path: '/quality/process' },
+      { label: '출하검사관리', path: '/quality/shipping' },
       { label: '출하검사현황', path: '/quality/shipping-status' },
+    ],
+  },
+  {
+    id: 'ncr', label: '부적합관리', icon: 'alert', children: [
       { label: '부적합관리', path: '/quality/nonconformance' },
       { label: '부적합현황', path: '/quality/ncr-status' },
       { label: '개선대책관리', path: '/quality/improvements' },
     ],
   },
   {
-    id: 'dev', label: '변경/개발관리', icon: 'clipboard', children: [
-      { label: '4M 변경관리', path: '/dev/four-m' },
-      { label: 'PPAP 승인관리', path: '/dev/ppap' },
-      { label: '개발문서(PFMEA·PFD 등)', path: '/dev/docs' },
+    id: 'dev', label: '개발관리', icon: 'clipboard', children: [
+      { label: 'PFMEA', path: '/dev/pfmea' },
+      { label: 'PFD (공정흐름도)', path: '/dev/pfd' },
+      { label: '관리계획서', path: '/dev/control-plan' },
+      { label: '작업표준서', path: '/dev/work-standard' },
+    ],
+  },
+  {
+    id: 'change', label: '변경관리', icon: 'refresh', children: [
+      { label: '4M 관리', path: '/change/four-m' },
+      { label: 'PPAP 승인관리', path: '/change/ppap' },
     ],
   },
   {
     id: 'measure', label: '계측기관리', icon: 'target', children: [
-      { label: '계측기관리', path: '/measure/instruments' },
-      { label: '검교정 이력', path: '/measure/calibrations' },
-      { label: 'Gauge R&R', path: '/measure/gauge-rr' },
+      { label: '계측기 관리', path: '/measure/instruments' },
+      { label: '검교정 관리', path: '/measure/calibrations' },
+      { label: '계측기현황', path: '/measure/status' },
+      { label: 'R&R 관리대장', path: '/measure/rr-register' },
+      { label: 'R&R 평가계획', path: '/measure/rr-plan' },
+      { label: 'R&R 평가등록', path: '/measure/gauge-rr' },
+      { label: 'R&R 실시현황', path: '/measure/rr-status' },
     ],
   },
   {
     id: 'weld', label: '용접기술관리', icon: 'zap', children: [
-      { label: 'WPS 관리', path: '/weld/wps' },
-      { label: 'PQR 관리', path: '/weld/pqr' },
+      { label: '용접절차 시방서(WPS)', path: '/weld/wps' },
+      { label: '인정기록서(PQR)', path: '/weld/pqr' },
       { label: '용접사 관리', path: '/weld/welders' },
     ],
   },
   {
     id: 'qcost', label: 'Q-Cost관리', icon: 'dollar', children: [
-      { label: 'Q-Cost 기준항목', path: '/qcost/items' },
-      { label: 'Q-Cost 등록/현황', path: '/qcost/records' },
+      { label: '기준정보관리', path: '/qcost/items' },
+      { label: '세부항목관리', path: '/qcost/details' },
+      { label: 'Q-Cost 관리', path: '/qcost/records' },
+      { label: 'Q-Cost 현황', path: '/qcost/status' },
     ],
   },
   {
@@ -176,35 +199,49 @@ export const ROUTES = {
   '/production/daily': { render: prod.dailyReport, title: '생산일보', group: '생산관리' },
   '/production/board': { render: prod.productionBoard, title: '생산현황판', group: '생산관리' },
 
-  '/tool/stocks': { render: toolStock, title: '공구 재고관리', group: '공구관리' },
-  '/tool/movements': { render: tool.toolMovements, title: '공구 입·출고·회수', group: '공구관리' },
-  '/tool/disposals': { render: tool.toolDisposals, title: '공구 폐기관리', group: '공구관리' },
-  '/tool/verifications': { render: tool.toolVerifications, title: '공구 치수검증', group: '공구관리' },
+  '/tool/master': { render: tool.toolMaster, title: '공구 기준정보등록', group: '공구 및 툴관리' },
+  '/tool/inbounds': { render: tool.toolInbounds, title: '공구 입고관리', group: '공구 및 툴관리' },
+  '/tool/stocks': { render: tool.toolStock, title: '공구 재고관리', group: '공구 및 툴관리' },
+  '/tool/issues': { render: tool.toolIssue, title: '공구 출고·회수관리', group: '공구 및 툴관리' },
+  '/tool/adjustments': { render: tool.toolAdjustments, title: '공구 재고조정', group: '공구 및 툴관리' },
+  '/tool/disposals': { render: tool.toolDisposals, title: '공구 폐기관리', group: '공구 및 툴관리' },
+  '/tool/verifications': { render: tool.toolVerifications, title: '공구 치수검증', group: '공구 및 툴관리' },
 
-  '/quality/standards': { render: inspectionStandards, title: '검사규격관리', group: '품질관리' },
-  '/quality/incoming': { render: incomingInspection, title: '수입검사', group: '품질관리' },
-  '/quality/incoming-status': { render: incomingStatus, title: '수입검사현황', group: '품질관리' },
-  '/quality/process': { render: qms.processInspection, title: '공정검사', group: '품질관리' },
-  '/quality/shipping': { render: shippingInspection, title: '출하검사', group: '품질관리' },
-  '/quality/shipping-status': { render: shippingStatus, title: '출하검사현황', group: '품질관리' },
-  '/quality/nonconformance': { render: qa.nonconformances, title: '부적합관리', group: '품질관리' },
-  '/quality/ncr-status': { render: ncrStatus, title: '부적합현황', group: '품질관리' },
-  '/quality/improvements': { render: qms.improvementActions, title: '개선대책관리', group: '품질관리' },
+  '/quality/standards': { render: inspectionSpecs, title: '검사규격관리', group: '검사관리' },
+  '/quality/incoming': { render: incomingInspection, title: '수입검사관리', group: '검사관리' },
+  '/quality/incoming-status': { render: incomingStatus, title: '수입검사현황', group: '검사관리' },
+  '/quality/process': { render: processInspection, title: '공정검사관리', group: '검사관리' },
+  '/quality/shipping': { render: shippingInspection, title: '출하검사관리', group: '검사관리' },
+  '/quality/shipping-status': { render: shippingStatus, title: '출하검사현황', group: '검사관리' },
 
-  '/dev/four-m': { render: qms.fourMChanges, title: '4M 변경관리', group: '변경/개발관리' },
-  '/dev/ppap': { render: qms.ppapApprovals, title: 'PPAP 승인관리', group: '변경/개발관리' },
-  '/dev/docs': { render: qms.devDocs, title: '개발문서관리', group: '변경/개발관리' },
+  '/quality/nonconformance': { render: nonconformances, title: '부적합관리', group: '부적합관리' },
+  '/quality/ncr-status': { render: ncrStatus, title: '부적합현황', group: '부적합관리' },
+  '/quality/improvements': { render: improvementActions, title: '개선대책관리', group: '부적합관리' },
 
-  '/measure/instruments': { render: qms.instruments, title: '계측기관리', group: '계측기관리' },
-  '/measure/calibrations': { render: qms.calibrations, title: '검교정 이력', group: '계측기관리' },
-  '/measure/gauge-rr': { render: qms.gaugeRR, title: 'Gauge R&R', group: '계측기관리' },
+  '/dev/pfmea': { render: devDocs.pfmeaDocs, title: 'PFMEA', group: '개발관리' },
+  '/dev/pfd': { render: devDocs.pfdDocs, title: 'PFD (공정흐름도)', group: '개발관리' },
+  '/dev/control-plan': { render: devDocs.controlPlans, title: '관리계획서', group: '개발관리' },
+  '/dev/work-standard': { render: devDocs.workStandards, title: '작업표준서', group: '개발관리' },
 
-  '/weld/wps': { render: qms.wpsDocs, title: 'WPS 관리', group: '용접기술관리' },
-  '/weld/pqr': { render: qms.pqrDocs, title: 'PQR 관리', group: '용접기술관리' },
-  '/weld/welders': { render: qms.welders, title: '용접사 관리', group: '용접기술관리' },
+  '/change/four-m': { render: change.fourMChanges, title: '4M 관리', group: '변경관리' },
+  '/change/ppap': { render: change.ppapApprovals, title: 'PPAP 승인관리', group: '변경관리' },
 
-  '/qcost/items': { render: qms.qcostItems, title: 'Q-Cost 기준항목', group: 'Q-Cost관리' },
-  '/qcost/records': { render: qms.qcostRecords, title: 'Q-Cost 등록/현황', group: 'Q-Cost관리' },
+  '/measure/instruments': { render: measure.instruments, title: '계측기 관리', group: '계측기관리' },
+  '/measure/calibrations': { render: measure.calibrations, title: '검교정 관리', group: '계측기관리' },
+  '/measure/status': { render: measure.instrumentStatus, title: '계측기현황', group: '계측기관리' },
+  '/measure/rr-register': { render: measure.grrRegisters, title: 'R&R 관리대장', group: '계측기관리' },
+  '/measure/rr-plan': { render: measure.grrPlans, title: 'R&R 평가계획', group: '계측기관리' },
+  '/measure/gauge-rr': { render: measure.gaugeRR, title: 'R&R 평가등록', group: '계측기관리' },
+  '/measure/rr-status': { render: measure.grrStatus, title: 'R&R 실시현황', group: '계측기관리' },
+
+  '/weld/wps': { render: weld.wpsDocs, title: '용접절차 시방서(WPS)', group: '용접기술관리' },
+  '/weld/pqr': { render: weld.pqrDocs, title: '인정기록서(PQR)', group: '용접기술관리' },
+  '/weld/welders': { render: weld.welders, title: '용접사 관리', group: '용접기술관리' },
+
+  '/qcost/items': { render: qcost.qcostItems, title: 'Q-Cost 기준정보관리', group: 'Q-Cost관리' },
+  '/qcost/details': { render: qcost.qcostDetails, title: 'Q-Cost 세부항목관리', group: 'Q-Cost관리' },
+  '/qcost/records': { render: qcost.qcostRecords, title: 'Q-Cost 관리', group: 'Q-Cost관리' },
+  '/qcost/status': { render: qcost.qcostStatus, title: 'Q-Cost 현황', group: 'Q-Cost관리' },
 
   '/cms/monitor': { render: cms.equipmentMonitor, title: '설비모니터링', group: '설비관리(CMS)' },
   '/cms/histories': { render: cms.equipmentHistories, title: '설비 수리이력', group: '설비관리(CMS)' },

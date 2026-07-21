@@ -4,8 +4,8 @@
     {
       "name": "minsun-mes",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5511"],
-      "port": 5511
+      "runtimeArgs": ["devserver.py", "5599"],
+      "port": 5599
     }
   ]
 }

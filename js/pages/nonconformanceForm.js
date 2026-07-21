@@ -63,10 +63,14 @@ export async function openNonconformanceForm({ prefill = {}, onSaved, mandatory 
         try {
           const all = await db.all('nonconformances', {});
           const ncr_no = nextDocNo('NC', all.map(x => x.ncr_no));
+          const qty = Number(g('defect_qty')) || 0;
           const record = {
             ncr_no, occur_date: g('occur_date') || todayStr(), process: g('process'),
+            ncr_type: '공정부적합', source_type: prefill.source_type || 'POP', source_no: prefill.source_no || prefill.wo_no || '',
+            lot_no: prefill.lot_no || '', equipment: prefill.equipment || '',
             item_code: g('item_code'), item_name: g('item_name'), defect_type: g('defect_type'),
-            defect_qty: Number(g('defect_qty')) || 0, cause: g('cause'), action: g('action'),
+            defect_qty: qty, isolate_qty: qty, progress: '식별·격리',
+            cause: g('cause'), action: g('action'),
             action_type: g('action_type'), worker: g('worker'), status: g('status'), remark: g('remark'),
           };
           await db.insert('nonconformances', record);

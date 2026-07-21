@@ -11,11 +11,12 @@
 - **가공업 특화 기준정보**: EA/KG 이중단위·단중, 판매/구매/외주단가, 라우팅그룹, 원소재/절단업체, 사내↔외주 혼류 라우팅
 - **LOT 추적성**: 작업지시 LOT No. 자동 부여 → 작업지시서 겸 **공정이동전표(바코드) 인쇄** → 원소재 투입~출하 정·역방향 추적
 - **양품 자동집계**: 생산실적·외주입고 등 모든 실적 입력에서 양품 = 생산수량 − 불량수량 자동 계산
-- **QMS(SQ 대응)**: 수입/공정/출하검사(체크시트), 부적합·개선대책, 4M/PPAP, PFMEA·PFD·관리계획서·작업표준서, 계측기/검교정/Gauge R&R, WPS/PQR/용접사, Q-Cost
+- **QMS(SQ 대응)**: 검사규격 개정·승인 관리, 수입/공정(초·중·종물)/출하검사, 부적합 5단계 진행상태·수량 정합성, 개선대책(임시/근본·유효성·수평전개), 4M/PPAP 체크리스트, PFMEA(RPN)·PFD·관리계획서·작업표준서 상호연계, 계측기/검교정/Gauge R&R(%GRR 자동계산), WPS/PQR/용접사, Q-Cost 자동계산
+- **화면별 SQ 심사 확인사항 명시**: 각 화면 설계서에 심사 대응 포인트를 함께 문서화
 - **SQ 지표 자동 산출**: 불량률(PPM), 시간당 생산량, 검사합격률, 공정능력(Cpk) 리포트
 - **CMS**: 설비모니터링(PLC 수집로그 반영), 수리이력, 비가동사유/실적, 설비점검
 - **공통 CRUD 엔진**: 검색·필터·정렬·페이징·모달폼·CSV 내보내기·유효성검사 내장
-- **화면설계서 내장**: 상단 문서 버튼으로 전체 시스템 프로세스와 62개 화면 설계 명세를 조회·인쇄
+- **화면설계서 내장**: 상단 문서 버튼으로 전체 시스템 프로세스와 69개 화면 설계 명세를 조회·인쇄
 
 ## 📁 메뉴 구조
 | 모듈 | 화면 |
@@ -26,35 +27,37 @@
 | 영업관리 | 수주관리·수주현황·출하지시·출하(납품)관리·출하현황 |
 | 구매/자재관리 | 자재발주(단중)·자재입고(라벨발행)·자재반출(외주출고/반납)·자재현황·외주발주·외주입고 |
 | 생산관리 | 생산계획·작업지시(LOT·전표출력)·생산실적·생산일보·생산현황판 |
-| 공구관리 | 재고·입출고/회수(호기별)·폐기(사유·수명)·치수검증 |
-| 품질관리 | 검사규격·수입/공정/출하검사·현황·부적합(클레임)·개선대책 |
-| 변경/개발관리 | 4M 변경·PPAP 승인·개발문서(PFMEA/PFD/관리계획서/작업표준서) |
-| 계측기관리 | 계측기·검교정 이력·Gauge R&R |
-| 용접기술관리 | WPS·PQR·용접사 자격 |
-| Q-Cost관리 | 기준항목·월별 등록/현황 |
+| 공구 및 툴관리 | 기준정보등록(QR·기준수명·적용대상)·입고(검사·단가)·재고(LOT 상태)·출고/회수(QR스캔·호기별)·재고조정(실사)·폐기(승인)·치수검증 |
+| 검사관리 | 검사규격관리(개정·승인)·수입검사·공정검사(초/중/종물)·출하검사(선행조건 검증)·현황 |
+| 부적합관리 | 부적합(진행상태·격리/처리수량 정합성)·부적합현황·개선대책(임시/근본·유효성·수평전개) |
+| 개발관리 | PFMEA(RPN 자동)·PFD(공정흐름)·관리계획서·작업표준서 — 상호 연계 호출 |
+| 변경관리 | 4M 관리(전후비교·시험생산·적용LOT·문서개정)·PPAP(제출차수·서류 체크리스트) |
+| 계측기관리 | 계측기(QR·교정주기)·검교정(D-Day·부적합 사용중지)·계측기현황·R&R 관리대장/평가계획/평가등록(%GRR 자동)/실시현황 |
+| 용접기술관리 | WPS(용접조건 전체)·PQR(시험결과·인정범위)·용접사(자격 만료 경고) |
+| Q-Cost관리 | 기준정보·세부항목(계산기준)·Q-Cost 관리(부적합 연계 자동계산)·현황(차트·드릴다운) |
 | 설비관리(CMS) | 설비모니터링·수리이력·비가동사유/실적·설비점검 |
 | SQ 리포트 | SQ 지표(PPM·UPH·합격률·Cpk)·LOT 추적 타임라인 |
-| 화면설계서 | 상단 📄 버튼 — 전체 프로세스 + 62개 화면 명세(미리보기·기능·연관성·드롭리스트·조회조건·컬럼·예외처리) |
+| 화면설계서 | 상단 📄 버튼 — 전체 프로세스 + 69개 화면 명세(미리보기·기능·연관성·드롭리스트·조회조건·컬럼·예외처리·SQ 심사 확인사항) |
 
 ## 🚀 로컬 실행
 ES Module을 사용하므로 `file://`로 직접 열면 안 되고, 간단한 정적 서버가 필요합니다.
 
 ```bash
-python -m http.server 5500
-# 또는 VS Code "Live Server" 확장
+python devserver.py 5599     # 캐시 비활성화 개발 서버(모듈 수정 즉시 반영)
 ```
-브라우저에서 `http://localhost:5500` 접속. 데모 계정: **admin / admin** (prod01·qa01·mat01·sales01·weld01 / 1234)
+브라우저에서 `http://localhost:5599` 접속. 데모 계정: **admin / admin** (prod01·qa01·mat01·sales01·weld01 / 1234)
 
 ## 🗄️ Supabase 연결 (실데이터 사용)
 1. [supabase.com](https://supabase.com)에서 프로젝트 생성
 2. **SQL Editor**에 `supabase/schema.sql` 전체를 붙여넣고 실행 (테이블 50여 개·뷰·트리거·RLS 생성)
-3. **Project Settings → API**에서 `Project URL`과 `anon public key` 복사
-4. `js/config.js`에 입력:
+3. 기존 프로젝트를 확장하는 경우 **`supabase/migration_v2_sq.sql`** 을 추가로 실행 (검사규격 개정·공구 재고조정·개발문서 상세·R&R·Q-Cost 세부항목 등)
+4. **Project Settings → API**에서 `Project URL`과 `anon public key` 복사
+5. `js/config.js`에 입력:
    ```js
    export const SUPABASE_URL = 'https://xxxx.supabase.co';
    export const SUPABASE_ANON_KEY = 'sb_publishable_...';
    ```
-5. 새로고침 → 상단 "Supabase 연결됨" 표시 확인. 기준정보(부서→사용자→거래처→재질→품목→공정→설비→라우팅→BOM) 순으로 등록
+6. 새로고침 → 상단 "Supabase 연결됨" 표시 확인. 기준정보(부서→사용자→거래처→재질→품목→공정→설비→라우팅→BOM) 순으로 등록
 
 > ⚠️ `schema.sql`의 RLS 정책은 개발 편의를 위해 **anon 전체 허용**입니다.
 > 운영 배포 전 반드시 인증 기반 정책으로 강화하세요.
@@ -96,11 +99,14 @@ minsun/
 ├─ index.html            # 진입점
 ├─ wrangler.jsonc        # Cloudflare Workers 배포 설정 (minsun-mes)
 ├─ assets/css/           # 디자인시스템·레이아웃·컴포넌트
-├─ supabase/schema.sql   # 전체 DB 스키마 (민선 MES·QMS)
+├─ devserver.py          # 로컬 개발 서버(no-cache)
+├─ supabase/
+│  ├─ schema.sql         # 전체 DB 스키마 (신규 설치용)
+│  └─ migration_v2_sq.sql # 기존 DB 확장용 마이그레이션
 └─ js/
    ├─ config.js          # Supabase 연결 설정 ← 여기에 URL/KEY 입력
    ├─ routes.js          # 메뉴·라우팅
    ├─ app.js             # 셸·라우터·로그인
-   ├─ lib/               # db(어댑터)·crud(페이지 팩토리)·barcode(전표)·seed(데모)·auth·format
-   └─ pages/             # 화면 모듈 (base·sales·purchase·production·tool·quality·qms·cms·kpi·pop·designSpec …)
+   ├─ lib/               # db(어댑터)·crud(페이지 팩토리)·gridEditor(상세표)·barcode(전표)·seed(데모)·auth·format
+   └─ pages/             # 화면 모듈 (base·sales·purchase·production·tool·inspectionSpec·inspection·nonconformance·devDocs·change·measure·welding·qcost·cms·kpi·pop·designSpec …)
 ```
