@@ -19,8 +19,8 @@ import { inspectionStandards } from './pages/inspectionStandard.js';
 import { ncrStatus } from './pages/ncrStatus.js';
 import { bomManager } from './pages/bom.js';
 import { toolStock } from './pages/toolStock.js';
-import * as ai from './pages/ai.js';
 import { incomingStatus, shippingStatus, salesStatus, deliveryStatus } from './pages/statusView.js';
+import { designSpecHome, designSpecDetail } from './pages/designSpec.js';
 
 // 사이드바 메뉴 트리
 export const MENU = [
@@ -134,15 +134,6 @@ export const MENU = [
       { label: 'LOT 추적', path: '/sq/lot-trace' },
     ],
   },
-  {
-    id: 'ai', label: 'AI 인텔리전스', icon: 'brain', children: [
-      { label: '생산지연 예측', path: '/ai/delay' },
-      { label: '불량원인 분석', path: '/ai/defect' },
-      { label: '재고 예측', path: '/ai/inventory' },
-      { label: '설비 예지보전', path: '/ai/equipment' },
-      { label: 'AI 일일리포트', path: '/ai/report' },
-    ],
-  },
 ];
 
 // 라우트 → { render, title, group }
@@ -223,12 +214,10 @@ export const ROUTES = {
 
   '/sq/report': { render: sqReport, title: 'SQ 지표 리포트', group: 'SQ 리포트' },
   '/sq/lot-trace': { render: lotTrace, title: 'LOT 추적', group: 'SQ 리포트' },
-
-  '/ai/delay': { render: ai.aiDelay, title: '생산지연 예측', group: 'AI 인텔리전스' },
-  '/ai/defect': { render: ai.aiDefect, title: '불량원인 분석', group: 'AI 인텔리전스' },
-  '/ai/inventory': { render: ai.aiInventory, title: '재고 예측', group: 'AI 인텔리전스' },
-  '/ai/equipment': { render: ai.aiEquipment, title: '설비 예지보전', group: 'AI 인텔리전스' },
-  '/ai/report': { render: ai.aiReport, title: 'AI 일일리포트', group: 'AI 인텔리전스' },
 };
+
+// 화면설계서 (메뉴 외 — 상단 버튼으로 진입)
+ROUTES['/spec'] = { render: designSpecHome, title: '화면설계서', group: '화면설계서' };
+ROUTES['/spec/view'] = { render: designSpecDetail, title: '화면설계서 상세', group: '화면설계서' };
 
 export const DEFAULT_ROUTE = '/dashboard';

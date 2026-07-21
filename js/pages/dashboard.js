@@ -3,7 +3,6 @@ import { db } from '../lib/db.js';
 import { num, won, fmtDate, todayStr, escapeHtml } from '../lib/format.js';
 import { badge } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
-import { predictDelays, predictInventory, RISK_TONE, RISK_LABEL } from '../lib/ai.js';
 
 export async function dashboard(root) {
   root.innerHTML = `
@@ -22,8 +21,8 @@ export async function dashboard(root) {
       <div class="card"><div class="card__head">${icon('cpu', 18)}<h3>설비 가동현황</h3></div><div class="card__body" id="dash-equip"></div></div>
     </div>
     <div class="grid-2" style="margin-top:18px">
-      <div class="card"><div class="card__head">${icon('brain', 18)}<h3>AI 인사이트</h3><div class="spacer"></div><a class="btn btn--sm" href="#/ai/report">AI 리포트</a></div><div class="card__body" id="dash-ai"></div></div>
       <div class="card"><div class="card__head">${icon('trendUp', 18)}<h3>SQ 핵심지표</h3><div class="spacer"></div><a class="btn btn--sm" href="#/sq/report">SQ 리포트</a></div><div class="card__body" id="dash-sq"></div></div>
+      <div class="card"><div class="card__head">${icon('clock', 18)}<h3>납기 임박 · 지연 수주</h3><div class="spacer"></div><a class="btn btn--sm" href="#/sales/order-status">수주현황</a></div><div class="card__body" id="dash-due"></div></div>
     </div>`;
 
   const [orders, wos, results, incoming, shipping, ncr, mstock, equips] = await Promise.all([
@@ -93,21 +92,25 @@ export async function dashboard(root) {
     }).join('')}
   </div>` : empty('설비 정보가 없습니다');
 
-  // AI 인사이트 (생산지연 위험 + 발주 필요 재고)
+  // 납기 임박·지연 수주 (미완료 수주를 납기 순으로)
   (async () => {
-    const el = root.querySelector('#dash-ai'); if (!el) return;
-    try {
-      const [delays, inv] = await Promise.all([predictDelays(), predictInventory()]);
-      const topDelays = delays.items.filter(i => i.risk === 'critical' || i.risk === 'high').slice(0, 3);
-      const reorder = inv.list.filter(i => i.reorderQty > 0).slice(0, 3);
-      el.innerHTML = `<div class="flex-col">
-        <div class="flex between" style="padding:8px 12px;background:var(--surface-2);border-radius:10px"><span>${icon('factory', 15)} 생산지연 위험</span>${badge(num(delays.summary.critical + delays.summary.high) + '건', (delays.summary.critical + delays.summary.high) ? 'warning' : 'success')}</div>
-        ${topDelays.map(i => `<div class="flex between" style="padding:7px 12px"><span class="muted">${escapeHtml(i.wo.item_name || i.wo.wo_no)}</span>${badge(RISK_LABEL[i.risk], RISK_TONE[i.risk])}</div>`).join('')}
-        <div class="flex between" style="padding:8px 12px;background:var(--surface-2);border-radius:10px;margin-top:4px"><span>${icon('box', 15)} 발주 필요 자재</span>${badge(num(inv.summary.reorderItems) + '종', inv.summary.reorderItems ? 'warning' : 'success')}</div>
-        ${reorder.map(i => `<div class="flex between" style="padding:7px 12px"><span class="muted">${escapeHtml(i.item_name || i.item_code)}</span><span class="mono" style="color:var(--brand)">+${num(i.reorderQty)}</span></div>`).join('')}
-        ${(!topDelays.length && !reorder.length) ? `<div class="flex" style="color:var(--success);padding:8px 12px">${icon('checkCircle', 16)} 위험 요소가 없습니다.</div>` : ''}
-      </div>`;
-    } catch { el.innerHTML = empty('AI 분석 데이터 없음'); }
+    const el = root.querySelector('#dash-due'); if (!el) return;
+    const openOrders = orders
+      .filter(o => !['완료', '취소'].includes(o.status) && o.due_date)
+      .map(o => ({ ...o, due: String(o.due_date).slice(0, 10) }))
+      .sort((a, b) => a.due.localeCompare(b.due))
+      .slice(0, 6);
+    const dday = (due) => Math.round((new Date(due) - new Date(today)) / 86400000);
+    el.innerHTML = openOrders.length ? `<div class="flex-col">
+      ${openOrders.map(o => {
+        const dd = dday(o.due);
+        const tone = dd < 0 ? 'danger' : dd <= 3 ? 'warning' : 'neutral';
+        const label = dd < 0 ? `지연 ${-dd}일` : dd === 0 ? '오늘' : `D-${dd}`;
+        return `<div class="flex between" style="padding:9px 12px;background:var(--surface-2);border-radius:10px">
+          <div><b>${escapeHtml(o.item_name || o.item_code)}</b><div class="muted">${escapeHtml(o.partner || '')} · ${num(o.order_qty)}EA · 납기 ${fmtDate(o.due)}</div></div>
+          ${badge(label, tone)}</div>`;
+      }).join('')}
+    </div>` : `<div class="flex-col"><div class="flex" style="color:var(--success);padding:10px">${icon('checkCircle', 18)} 진행중인 납기 건이 없습니다.</div></div>`;
   })();
 
   // SQ 핵심지표 (불량률 PPM · 시간당 생산량)

@@ -15,11 +15,12 @@
 - **SQ 지표 자동 산출**: 불량률(PPM), 시간당 생산량, 검사합격률, 공정능력(Cpk) 리포트
 - **CMS**: 설비모니터링(PLC 수집로그 반영), 수리이력, 비가동사유/실적, 설비점검
 - **공통 CRUD 엔진**: 검색·필터·정렬·페이징·모달폼·CSV 내보내기·유효성검사 내장
+- **화면설계서 내장**: 상단 문서 버튼으로 전체 시스템 프로세스와 62개 화면 설계 명세를 조회·인쇄
 
 ## 📁 메뉴 구조
 | 모듈 | 화면 |
 |------|------|
-| 대시보드 | KPI + SQ 핵심지표(PPM·UPH) + AI 인사이트 |
+| 대시보드 | KPI + SQ 핵심지표(PPM·UPH) + 납기 임박·지연 수주 |
 | 작업 POP | 작업지시 → 공정별 시작/종료(작업자·호기 선택, 양품 자동집계, 재작업) |
 | 기준정보관리 | 사용자·부서·공통코드·거래처(원소재/절단업체 포함)·품목(단중·이중단위)·BOM·표준공정·라우팅·도면·표준재질·휴일·공구·설비(호기·PLC) |
 | 영업관리 | 수주관리·수주현황·출하지시·출하(납품)관리·출하현황 |
@@ -33,7 +34,7 @@
 | Q-Cost관리 | 기준항목·월별 등록/현황 |
 | 설비관리(CMS) | 설비모니터링·수리이력·비가동사유/실적·설비점검 |
 | SQ 리포트 | SQ 지표(PPM·UPH·합격률·Cpk)·LOT 추적 타임라인 |
-| AI 인텔리전스 | 생산지연 예측·불량원인 분석·재고 예측·설비 예지보전·일일리포트 |
+| 화면설계서 | 상단 📄 버튼 — 전체 프로세스 + 62개 화면 명세(미리보기·기능·연관성·드롭리스트·조회조건·컬럼·예외처리) |
 
 ## 🚀 로컬 실행
 ES Module을 사용하므로 `file://`로 직접 열면 안 되고, 간단한 정적 서버가 필요합니다.
@@ -74,22 +75,20 @@ PLC 게이트웨이가 `equipment_logs` 테이블에 3초 주기로 적재(equip
 ### 🧪 데모 모드 강제 전환
 주소 끝에 `?demo=1`을 붙이면 키가 있어도 localStorage 데모로 동작합니다. `?demo=0`으로 해제.
 
-## ☁️ Cloudflare 배포
+## ☁️ Cloudflare 배포 (Git 연동 — 구축 완료)
 
-**방법 A — Workers 정적 자산 (wrangler, 권장)**
+**운영 URL: https://minsun-mes.daehyunlt211.workers.dev**
+
+GitHub `daehyunlt211-a11y/minsun-mes` 저장소가 Cloudflare **Workers Builds**에 연결되어 있습니다.
+`main` 브랜치에 푸시하면 자동으로 빌드·배포됩니다.
+
 ```bash
-npm i -g wrangler       # 최초 1회
-wrangler login
-wrangler deploy         # wrangler.jsonc 의 'minsun-mes' Worker로 배포
+git add -A
+git commit -m "변경 내용"
+git push          # → Cloudflare 자동 배포
 ```
-→ `https://minsun-mes.<계정>.workers.dev`
 
-**방법 B — Pages 대시보드 업로드 (Node 불필요)**
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages** → **Upload assets**
-2. 이 폴더 전체를 드래그앤드롭 → **Deploy** → `https://<프로젝트>.pages.dev`
-
-**방법 C — Git 연동 Pages**
-빌드 명령 없음(비워둠), 출력 디렉터리 `/`. 포함된 `_headers`가 자동 적용됩니다.
+수동 배포가 필요하면 `wrangler deploy`(wrangler.jsonc의 `minsun-mes` Worker)를 사용합니다.
 
 ## 📂 폴더 구조
 ```
@@ -102,6 +101,6 @@ minsun/
    ├─ config.js          # Supabase 연결 설정 ← 여기에 URL/KEY 입력
    ├─ routes.js          # 메뉴·라우팅
    ├─ app.js             # 셸·라우터·로그인
-   ├─ lib/               # db(어댑터)·crud(페이지 팩토리)·barcode(전표)·seed(데모)·ai·chatbot·rag
-   └─ pages/             # 화면 모듈 (base·sales·purchase·production·tool·quality·qms·cms·kpi·pop …)
+   ├─ lib/               # db(어댑터)·crud(페이지 팩토리)·barcode(전표)·seed(데모)·auth·format
+   └─ pages/             # 화면 모듈 (base·sales·purchase·production·tool·quality·qms·cms·kpi·pop·designSpec …)
 ```

@@ -6,7 +6,6 @@ import { APP_CONFIG } from './config.js';
 import { toast, confirmDialog, openModal } from './ui/components.js';
 import { escapeHtml } from './lib/format.js';
 import { getCurrentUser, login, logout, changeMyPassword } from './lib/auth.js';
-import { mountChatbot, unmountChatbot, toggleChatbot } from './ui/chat.js';
 
 const app = document.getElementById('app');
 const initial = (s) => escapeHtml(String(s || '?').trim().slice(0, 1).toUpperCase());
@@ -28,13 +27,6 @@ function renderThemeBtn() {
   const btn = document.getElementById('theme-btn');
   if (btn) btn.innerHTML = icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon', 19);
 }
-function renderChatToggle() {
-  const btn = document.getElementById('chat-toggle');
-  if (!btn) return;
-  btn.innerHTML = icon('brain', 19);
-  btn.title = 'AI 비서 열기/닫기';
-}
-
 // ---------- 레이아웃 ----------
 function renderShell() {
   const me = getCurrentUser() || { name: '사용자', department: '', role: 'user' };
@@ -57,7 +49,7 @@ function renderShell() {
         <div class="breadcrumb" id="breadcrumb"></div>
         <div class="topbar__spacer"></div>
         ${IS_DEMO ? `<span class="badge badge--warning" title="Supabase 미연결 — 브라우저에 임시 저장됩니다">데모 모드</span>` : `<span class="badge badge--success">Supabase 연결됨</span>`}
-        <button class="icon-btn" id="chat-toggle" title="AI 비서 켜기/끄기"></button>
+        <button class="icon-btn" id="spec-btn" title="화면설계서">${icon('fileText', 19)}</button>
         <button class="icon-btn" id="theme-btn" title="테마 전환"></button>
         <button class="icon-btn" title="알림">${icon('bell', 19)}</button>
         <div class="user-menu">
@@ -83,8 +75,7 @@ function renderShell() {
   };
   document.getElementById('scrim').onclick = () => { app.classList.remove('mobile-open'); document.getElementById('scrim').classList.remove('show'); };
   document.getElementById('theme-btn').onclick = toggleTheme;
-  renderChatToggle();
-  document.getElementById('chat-toggle').onclick = () => toggleChatbot();
+  document.getElementById('spec-btn').onclick = () => { location.hash = '#/spec'; };
   document.getElementById('user-avatar').onclick = (e) => { e.stopPropagation(); toggleUserMenu(); };
   const reset = document.getElementById('reset-demo');
   if (reset) reset.onclick = async () => {
@@ -282,7 +273,6 @@ function openChangePassword() {
 
 // ---------- 로그인 화면 ----------
 function renderLogin() {
-  unmountChatbot();
   app.className = '';
   app.innerHTML = `
     <div class="login-wrap">
@@ -317,7 +307,6 @@ function renderLogin() {
 let started = false;
 function startApp() {
   renderShell();
-  mountChatbot();
   if (!started) { window.addEventListener('hashchange', route); started = true; }
   if (!location.hash) location.replace('#' + DEFAULT_ROUTE);
   route();
