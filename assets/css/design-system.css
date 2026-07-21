@@ -1,0 +1,129 @@
+/* =====================================================================
+   MES Design System — 2026 Trend
+   - Soft neumorphic + glassmorphism 하이브리드
+   - Light/Dark 듀얼 테마, 미세 그라데이션, 라운드 12~20px
+   - 시스템 폰트 + Pretendard 우선
+   ===================================================================== */
+
+:root {
+  /* Brand */
+  --brand-50:  #eef4ff;
+  --brand-100: #d9e6ff;
+  --brand-200: #b3ccff;
+  --brand-300: #84a9ff;
+  --brand-400: #5b85fa;
+  --brand-500: #3b63f0;   /* primary */
+  --brand:     #3b63f0;   /* primary 별칭 (var(--brand) 사용처 호환) */
+  --brand-600: #2c4ad6;
+  --brand-700: #2339ab;
+  --brand-800: #1f3186;
+  --brand-900: #1d2d6b;
+
+  --accent: #00c2a8;       /* teal accent */
+  --accent-2: #7c4dff;     /* violet accent */
+
+  /* Semantic */
+  --success: #16a34a;
+  --success-bg: #dcfce7;
+  --warning: #d97706;
+  --warning-bg: #fef3c7;
+  --danger: #dc2626;
+  --danger-bg: #fee2e2;
+  --info: #0284c7;
+  --info-bg: #e0f2fe;
+  --neutral: #64748b;
+  --neutral-bg: #f1f5f9;
+
+  /* Light theme surfaces */
+  --bg: #f4f6fb;
+  --bg-grad: radial-gradient(1200px 600px at 80% -10%, #e7edff 0%, transparent 60%),
+             radial-gradient(900px 500px at -10% 110%, #e2fbf5 0%, transparent 55%),
+             #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-glass: rgba(255, 255, 255, 0.97);
+  --border: #e6e9f0;
+  --border-strong: #d3d8e3;
+
+  --text: #1a2233;
+  --text-2: #515a6e;
+  --text-3: #8a93a6;
+  --text-inv: #ffffff;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(20, 30, 60, 0.06);
+  --shadow: 0 4px 14px rgba(20, 30, 60, 0.08);
+  --shadow-lg: 0 12px 36px rgba(20, 30, 60, 0.14);
+  --shadow-glow: 0 6px 24px rgba(59, 99, 240, 0.28);
+
+  /* Geometry */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 999px;
+
+  /* Sidebar */
+  --sidebar-w: 260px;
+  --sidebar-w-collapsed: 72px;
+  --topbar-h: 62px;
+
+  --font: 'Pretendard', 'Pretendard Variable', -apple-system, BlinkMacSystemFont,
+          'Segoe UI', Roboto, 'Malgun Gothic', '맑은 고딕', sans-serif;
+  --transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] {
+  --bg: #0c111d;
+  --bg-grad: radial-gradient(1200px 600px at 80% -10%, #16204a 0%, transparent 60%),
+             radial-gradient(900px 500px at -10% 110%, #0c2a27 0%, transparent 55%),
+             #0c111d;
+  --surface: #151c2c;
+  --surface-2: #1b2334;
+  --surface-glass: rgba(21, 28, 44, 0.97);
+  --border: #28324a;
+  --border-strong: #38445f;
+
+  --text: #e8ecf5;
+  --text-2: #aab3c7;
+  --text-3: #6b7591;
+  --text-inv: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.6);
+
+  --neutral-bg: #232c40;
+  --success-bg: rgba(22, 163, 74, 0.16);
+  --warning-bg: rgba(217, 119, 6, 0.16);
+  --danger-bg: rgba(220, 38, 38, 0.16);
+  --info-bg: rgba(2, 132, 199, 0.16);
+}
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg-grad);
+  background-attachment: fixed;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; font-size: 14px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Utility text */
+.text-2 { color: var(--text-2); }
+.text-3 { color: var(--text-3); }
+.muted { color: var(--text-3); font-size: 13px; }
+.mono { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }

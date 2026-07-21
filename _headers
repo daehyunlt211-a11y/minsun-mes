@@ -1,0 +1,11 @@
+# Cloudflare Pages / Netlify 공통 보안·캐시 헤더
+/*
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# JS/CSS 모듈은 항상 최신을 받도록 캐시 무효화 (no-build 배포라 파일명에 해시가 없음)
+/js/*
+  Cache-Control: no-cache
+/assets/*
+  Cache-Control: no-cache

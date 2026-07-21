@@ -1,0 +1,18 @@
+# Netlify 배포 설정 — 빌드 과정 없는 정적 사이트
+[build]
+  publish = "."
+  command = ""
+
+# SPA 해시 라우팅을 사용하므로 별도 리라이트는 불필요하지만,
+# 직접 경로 접근 시에도 index.html을 서빙하도록 안전망 설정
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
