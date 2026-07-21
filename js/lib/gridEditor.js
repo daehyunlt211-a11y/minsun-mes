@@ -171,7 +171,7 @@ export function createGridEditor(mount, cols, opts) {
         const payload = { ...r };
         delete payload.created_at; delete payload.updated_at;
         payload[opts.parentKey] = opts.parentValue;
-        if (opts.beforeSaveRow) opts.beforeSaveRow(payload);
+        if (opts.beforeSaveRow) opts.beforeSaveRow(payload, rows.indexOf(r));
         if (r.id) { const id = r.id; delete payload.id; await db.update(opts.table, id, payload); }
         else { delete payload.id; const created = await db.insert(opts.table, payload); r.id = created?.id; }
       }

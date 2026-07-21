@@ -8,6 +8,7 @@ import * as pur from './pages/purchase.js';
 import * as tool from './pages/tool.js';
 import * as cms from './pages/cms.js';
 import * as devDocs from './pages/devDocs.js';
+import { docConsistency } from './pages/docConsistency.js';
 import * as change from './pages/change.js';
 import * as measure from './pages/measure.js';
 import * as weld from './pages/welding.js';
@@ -104,10 +105,11 @@ export const MENU = [
   },
   {
     id: 'dev', label: '개발관리', icon: 'clipboard', children: [
-      { label: 'PFMEA', path: '/dev/pfmea' },
       { label: 'PFD (공정흐름도)', path: '/dev/pfd' },
+      { label: 'PFMEA', path: '/dev/pfmea' },
       { label: '관리계획서', path: '/dev/control-plan' },
       { label: '작업표준서', path: '/dev/work-standard' },
+      { label: '문서 정합성 점검', path: '/dev/consistency' },
     ],
   },
   {
@@ -218,10 +220,11 @@ export const ROUTES = {
   '/quality/ncr-status': { render: ncrStatus, title: '부적합현황', group: '부적합관리' },
   '/quality/improvements': { render: improvementActions, title: '개선대책관리', group: '부적합관리' },
 
-  '/dev/pfmea': { render: devDocs.pfmeaDocs, title: 'PFMEA', group: '개발관리' },
   '/dev/pfd': { render: devDocs.pfdDocs, title: 'PFD (공정흐름도)', group: '개발관리' },
+  '/dev/pfmea': { render: devDocs.pfmeaDocs, title: 'PFMEA', group: '개발관리' },
   '/dev/control-plan': { render: devDocs.controlPlans, title: '관리계획서', group: '개발관리' },
   '/dev/work-standard': { render: devDocs.workStandards, title: '작업표준서', group: '개발관리' },
+  '/dev/consistency': { render: docConsistency, title: '개발문서 정합성 점검', group: '개발관리' },
 
   '/change/four-m': { render: change.fourMChanges, title: '4M 관리', group: '변경관리' },
   '/change/ppap': { render: change.ppapApprovals, title: 'PPAP 승인관리', group: '변경관리' },

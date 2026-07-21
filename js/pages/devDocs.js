@@ -1,7 +1,10 @@
 // =====================================================================
-// 개발관리 — PFMEA / PFD / 관리계획서 / 작업표준서
-//   · 문서 마스터(품목·개정·승인) + 유형별 상세표(인라인 편집)
-//   · PFD 공정순서 → PFMEA·관리계획서 자동 호출, RPN 자동계산
+// 개발관리 — PFD / PFMEA / 관리계획서 / 작업표준서
+//   PFD → PFMEA → 관리계획서 → 작업표준서 순으로 연계되는 4개 문서.
+//   · PFD에서 부여한 "공정번호"를 전 문서가 동일하게 사용(일치성의 기준)
+//   · PFMEA 고위험·특별특성 → 관리계획서 관리항목으로 전개
+//   · 관리계획서 관리기준 → 작업표준서 실행방법으로 구체화
+//   · 각 문서에서 상위 문서 대비 누락·불일치를 점검할 수 있음
 // =====================================================================
 import { db } from '../lib/db.js';
 import { num, fmtDate, todayStr, escapeHtml, nextDocNo } from '../lib/format.js';
@@ -11,6 +14,33 @@ import { createGridEditor } from '../lib/gridEditor.js';
 
 const STATUSES = ['작성중', '검토중', '승인', '개정', '폐기'];
 const CHAR_TYPES = ['일반', '중요특성', '특별특성'];
+// 관리계획서·작업표준서가 공유하는 검사주기(불일치 방지를 위해 동일 목록 사용)
+export const INSPECT_CYCLES = ['초물', '중물', '종물', '초·중·종물', '1회/LOT', '전수', '주기(1h)', '주기(2h)', '주기(4h)', '작업시작 시', '작업종료 시'];
+// 관리계획서·작업표준서가 공유하는 이상 시 조치
+export const REACTION_PLANS = ['생산 중지 및 조건 확인', '설비정지 후 보고', '전수선별', '재작업', '공구교체', '조건 재설정', '부적합품 격리', '부적합 등록', '초물 재검사'];
+
+// 품목의 최신 문서(승인본 우선) 조회 — 문서 간 연계 호출에 사용
+export async function latestDoc(docType, itemCode) {
+  const all = await db.all('dev_docs', {}).catch(() => []);
+  const list = all.filter(d => d.doc_type === docType && d.item_code === itemCode);
+  if (!list.length) return null;
+  const approved = list.filter(d => d.status === '승인');
+  const pool = approved.length ? approved : list;
+  pool.sort((a, b) => String(b.rev || '').localeCompare(String(a.rev || '')));
+  return pool[0];
+}
+
+// 관리계획서 관리항목 ↔ 작업표준서 작업단계 매칭 규칙 (일치 점검 · 정합성 점검 공용)
+//   ① cp_ref 직접 연결 → ② 같은 공정에서 단계명·품질확인사항에 관리항목명이 포함된 행
+export function findWsRow(wsRows, cpItem) {
+  const key = String(cpItem.ctrl_item || '').trim();
+  if (!key) return null;
+  const pno = String(cpItem.process_no || '');
+  return wsRows.find(r => r.cp_ref && r.cp_ref === key)
+    || wsRows.find(r => (!pno || String(r.process_no || '') === pno)
+      && (String(r.step_name || '').includes(key) || String(r.quality_check || '').includes(key)))
+    || null;
+}
 
 function stat(label, value, unit, ic, tint) {
   return `<div class="stat"><div class="stat__top"><span class="stat__label">${escapeHtml(label)}</span><span class="stat__ico ico-tint-${tint}">${icon(ic, 21)}</span></div><div class="stat__value">${value}${unit ? `<small>${escapeHtml(unit)}</small>` : ''}</div></div>`;
@@ -26,7 +56,7 @@ function createDevDocPage(cfg) {
   // cfg: { docType, title, subtitle, docPrefix, detailTable, cols(state), emptyText, extraHeader(doc) }
   return async function render(root) {
     const state = { search: '', fItem: '', fStatus: '__all__', selected: null };
-    let docs = [], items = [], processes = [], users = [], instruments = [], equipments = [];
+    let docs = [], items = [], processes = [], users = [], instruments = [], equipments = [], partners = [];
 
     root.innerHTML = `
       <div class="page-head">
@@ -56,16 +86,17 @@ function createDevDocPage(cfg) {
     root.querySelector('#dd-fstatus').addEventListener('change', (e) => { state.fStatus = e.target.value; renderTable(); });
 
     async function loadAll() {
-      const [all, its, procs, us, insts, eqs] = await Promise.all([
+      const [all, its, procs, us, insts, eqs, pts] = await Promise.all([
         db.all('dev_docs', {}).catch(() => []),
         db.all('items', { sort: 'code' }).catch(() => []),
         db.all('processes', { sort: 'code' }).catch(() => []),
         db.all('users', { sort: 'name' }).catch(() => []),
         db.all('measuring_instruments', { sort: 'code' }).catch(() => []),
         db.all('equipments', { sort: 'code' }).catch(() => []),
+        db.all('partners', { sort: 'code' }).catch(() => []),
       ]);
       docs = all.filter(d => d.doc_type === cfg.docType);
-      items = its; processes = procs; users = us; instruments = insts; equipments = eqs;
+      items = its; processes = procs; users = us; instruments = insts; equipments = eqs; partners = pts;
       root.querySelector('#dd-fitem').innerHTML = `<option value="">전체 품목</option>` + items.map(i => `<option value="${escapeHtml(i.code)}">${escapeHtml(i.code)} · ${escapeHtml(i.name)}</option>`).join('');
     }
     function filtered() {
@@ -143,7 +174,7 @@ function createDevDocPage(cfg) {
         </div></div>`;
       const ap = slot.querySelector('#dd-approve'); if (ap) ap.onclick = () => openApprove(d);
       slot.querySelector('#dd-print').onclick = () => cfg.print(d, state);
-      const grid = createGridEditor(slot.querySelector('#dd-grid'), cfg.cols({ processes, instruments, equipments, items, doc: d }), {
+      const grid = createGridEditor(slot.querySelector('#dd-grid'), cfg.cols({ processes, instruments, equipments, items, users, partners, doc: d }), {
         table: cfg.detailTable, parentKey: 'doc_no', parentValue: d.doc_no,
         title: cfg.detailTitle, emptyText: cfg.emptyText,
         rowDefaults: cfg.rowDefaults || {},
@@ -351,238 +382,406 @@ function docHead(doc, extra = '') {
 }
 
 // =====================================================================
-// 6-1 PFMEA
-// =====================================================================
-export const pfmeaDocs = createDevDocPage({
-  docType: 'PFMEA', docPrefix: 'FMEA', detailTable: 'pfmea_items', detailTitle: 'PFMEA 분석표',
-  title: 'PFMEA', subtitle: '공정별 잠재적 고장형태와 영향을 분석하고 S·O·D로 위험도(RPN)를 산출합니다. PFD 공정순서를 불러올 수 있습니다.',
-  emptyText: 'PFMEA 항목이 없습니다',
-  showProcess: false,
-  rowDefaults: { severity: 1, occurrence: 1, detection: 1, char_type: '일반' },
-  extraButtons: `<button class="btn btn--sm" data-load-pfd type="button">${icon('layers', 14)} PFD 공정 불러오기</button>`,
-  beforeSaveRow: (r) => {
-    r.rpn = (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1);
-    if (r.after_sev || r.after_occ || r.after_det) r.after_rpn = (Number(r.after_sev) || 1) * (Number(r.after_occ) || 1) * (Number(r.after_det) || 1);
-  },
-  cols: ({ processes }) => [
-    { key: 'process', label: '공정', type: 'select', width: '110px', placeholder: '선택', options: () => processes.map(p => p.name) },
-    { key: 'func', label: '기능/요구사항', width: '120px' },
-    { key: 'fail_mode', label: '고장형태', width: '120px', placeholder: '예: 치수 초과' },
-    { key: 'fail_effect', label: '영향', width: '120px' },
-    { key: 'severity', label: 'S', type: 'number', width: '52px', align: 'center' },
-    { key: 'fail_cause', label: '원인', width: '120px' },
-    { key: 'occurrence', label: 'O', type: 'number', width: '52px', align: 'center' },
-    { key: 'prevent_ctrl', label: '예방관리', width: '120px' },
-    { key: 'detect_ctrl', label: '검출관리', width: '120px' },
-    { key: 'detection', label: 'D', type: 'number', width: '52px', align: 'center' },
-    {
-      key: 'rpn', label: 'RPN', width: '64px', align: 'center',
-      calc: (r) => (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1),
-      tone: (r) => { const v = (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1); return v >= 100 ? 'tone-danger' : v >= 60 ? 'tone-warning' : ''; },
-    },
-    { key: 'char_type', label: '특성', type: 'select', options: CHAR_TYPES, width: '92px', align: 'center' },
-    { key: 'action_plan', label: '개선대책', width: '130px' },
-    { key: 'action_owner', label: '담당', width: '76px' },
-    { key: 'after_sev', label: '개선S', type: 'number', width: '58px', align: 'center' },
-    { key: 'after_occ', label: '개선O', type: 'number', width: '58px', align: 'center' },
-    { key: 'after_det', label: '개선D', type: 'number', width: '58px', align: 'center' },
-    { key: 'after_rpn', label: '개선RPN', width: '70px', align: 'center', calc: (r) => (r.after_sev || r.after_occ || r.after_det) ? (Number(r.after_sev) || 1) * (Number(r.after_occ) || 1) * (Number(r.after_det) || 1) : '' },
-  ],
-  extraHeader: (d) => `<div class="flex" style="padding:10px 12px;background:var(--surface-2);border-radius:10px;gap:8px;margin-bottom:12px;font-size:12.5px">
-    ${icon('alert', 16)} <b>RPN = S × O × D</b> · 100 이상은 빨강(우선 개선), 60 이상은 주황으로 표시됩니다. 특별특성은 관리계획서에 반드시 반영하세요.</div>`,
-  wireExtra: (slot, grid, { processes, doc }) => {
-    const btn = slot.querySelector('[data-load-pfd]');
-    if (!btn) return;
-    btn.onclick = async () => {
-      // 동일 품목 PFD 문서의 공정 순서 불러오기
-      const all = await db.all('dev_docs', {}).catch(() => []);
-      const pfd = all.filter(x => x.doc_type === 'PFD' && x.item_code === doc.item_code).sort((a, b) => String(b.rev || '').localeCompare(String(a.rev || '')))[0];
-      if (!pfd) { toast('해당 품목의 PFD 문서가 없습니다. PFD를 먼저 작성하세요.', 'error'); return; }
-      const steps = await db.all('pfd_items', { filters: { doc_no: pfd.doc_no }, sort: 'seq' }).catch(() => []);
-      if (!steps.length) { toast('PFD에 등록된 공정이 없습니다.', 'error'); return; }
-      const cur = grid.getRows();
-      const rows = [...cur];
-      steps.forEach((s, i) => {
-        if (cur.some(r => r.process === s.process_name)) return;
-        rows.push({ doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process: s.process_name, func: s.output_item || '', severity: 1, occurrence: 1, detection: 1, char_type: '일반' });
-      });
-      grid.setRows(rows);
-      toast(`PFD(${pfd.doc_no})에서 공정 ${steps.length}개를 불러왔습니다. [저장]을 눌러 반영하세요.`);
-    };
-  },
-  print: async (d) => {
-    const rows = await db.all('pfmea_items', { filters: { doc_no: d.doc_no }, sort: 'seq' }).catch(() => []);
-    printDoc('공정 FMEA', d, docHead(d),
-      ['№', '공정', '기능', '고장형태', '영향', 'S', '원인', 'O', '예방관리', '검출관리', 'D', 'RPN', '특성', '개선대책', '담당', '개선RPN'].map(h => `<th>${h}</th>`).join(''),
-      rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.process || ''}</td><td>${r.func || ''}</td><td>${r.fail_mode || ''}</td><td>${r.fail_effect || ''}</td>
-        <td>${r.severity || ''}</td><td>${r.fail_cause || ''}</td><td>${r.occurrence || ''}</td><td>${r.prevent_ctrl || ''}</td><td>${r.detect_ctrl || ''}</td>
-        <td>${r.detection || ''}</td><td><b>${r.rpn || ''}</b></td><td>${r.char_type || ''}</td><td>${r.action_plan || ''}</td><td>${r.action_owner || ''}</td><td>${r.after_rpn || ''}</td></tr>`).join('')
-      || '<tr><td colspan="16" style="text-align:center;color:#888">항목 없음</td></tr>');
-  },
-});
-
-// =====================================================================
-// 6-2 PFD (공정흐름도)
+// 6-1 PFD (공정흐름도) — 4개 문서의 기준. 여기서 정의한 공정번호를 전 문서가 승계
 // =====================================================================
 export const pfdDocs = createDevDocPage({
   docType: 'PFD', docPrefix: 'PFD', detailTable: 'pfd_items', detailTitle: '공정흐름',
-  title: 'PFD (공정흐름도)', subtitle: '품목별 공정 순서와 투입품·산출품·검사공정을 정의합니다. PFMEA·관리계획서의 공정 기준이 됩니다.',
+  title: 'PFD (공정흐름도)', subtitle: '제품이 만들어지는 전체 공정 순서를 정의합니다. 여기서 부여한 공정번호(10·20·30…)를 PFMEA·관리계획서·작업표준서가 그대로 사용합니다.',
   emptyText: '공정이 없습니다',
   showProcess: false,
   rowDefaults: { process_type: '가공' },
-  extraButtons: `<button class="btn btn--sm" data-load-routing type="button">${icon('route', 14)} 표준 라우팅 불러오기</button>`,
-  cols: ({ processes, equipments, items }) => [
+  extraButtons: `<button class="btn btn--sm" data-load-routing type="button">${icon('route', 14)} 표준 라우팅 불러오기</button>
+    <button class="btn btn--sm" data-renumber type="button">${icon('sliders', 14)} 공정번호 재부여</button>`,
+  // 공정번호 미입력 시 순번×10으로 자동 부여
+  beforeSaveRow: (r, i) => { if (!r.process_no) r.process_no = String((i + 1) * 10); },
+  cols: ({ processes, equipments, partners }) => [
+    { key: 'process_no', label: '공정번호', width: '78px', align: 'center', placeholder: '10' },
     { key: 'process_code', label: '공정코드', type: 'select', width: '110px', placeholder: '선택', options: () => processes.map(p => ({ value: p.code, label: `${p.code} · ${p.name}` })) },
-    { key: 'process_name', label: '공정명', width: '130px' },
-    { key: 'process_type', label: '공정구분', type: 'select', options: ['가공', '검사', '이동', '보관', '외주', '조립', '포장'], width: '96px', align: 'center' },
-    { key: 'equipment', label: '설비', type: 'select', width: '140px', placeholder: '선택', options: () => equipments.map(e => ({ value: e.code, label: `${e.code} · ${e.name}` })) },
-    { key: 'input_item', label: '투입품', width: '140px' },
-    { key: 'output_item', label: '산출품', width: '140px' },
-    { key: 'inspect_yn', label: '검사공정', type: 'check', width: '72px', align: 'center' },
-    { key: 'remark', label: '비고', width: '150px' },
+    { key: 'process_name', label: '공정명', width: '124px', placeholder: '예: 용접' },
+    { key: 'process_type', label: '공정구분', type: 'select', options: ['가공', '검사', '이동', '보관', '외주', '조립', '포장', '재작업'], width: '92px', align: 'center' },
+    { key: 'equipment', label: '설비', type: 'select', width: '130px', placeholder: '선택', options: () => equipments.map(e => ({ value: e.code, label: `${e.code} · ${e.name}` })) },
+    { key: 'input_item', label: '투입품', width: '120px' },
+    { key: 'output_item', label: '산출품', width: '120px' },
+    { key: 'material_flow', label: '자재이동', width: '120px', placeholder: '예: 자재창고→가공라인' },
+    { key: 'inspect_yn', label: '검사', type: 'check', width: '56px', align: 'center' },
+    { key: 'outsource_yn', label: '외주', type: 'check', width: '56px', align: 'center' },
+    { key: 'partner', label: '외주처', type: 'select', width: '120px', placeholder: '선택', options: () => partners.filter(p => p.biz_type === '외주가공처').map(p => p.name) },
+    { key: 'rework_yn', label: '재작업', type: 'check', width: '62px', align: 'center' },
+    { key: 'storage_yn', label: '보관', type: 'check', width: '56px', align: 'center' },
+    { key: 'char_type', label: '특별특성', type: 'select', options: CHAR_TYPES, width: '96px', align: 'center' },
+    { key: 'remark', label: '비고', width: '120px' },
   ],
   extraHeader: () => `<div class="flex" style="padding:10px 12px;background:var(--surface-2);border-radius:10px;gap:8px;margin-bottom:12px;font-size:12.5px">
-    ${icon('route', 16)} 순번은 [행 추가] 순서대로 자동 부여되며, ▲ 버튼으로 순서를 변경할 수 있습니다. 실제 생산공정과 일치해야 SQ 심사에 대응됩니다.</div>`,
+    ${icon('route', 16)} <b>PFD는 4개 문서의 기준 문서입니다.</b> 공정번호는 10·20·30… 단위로 부여하며, PFMEA·관리계획서·작업표준서에서 <b>동일한 번호·공정명</b>을 사용해야 합니다.
+    (미입력 시 저장할 때 순서대로 자동 부여)</div>`,
   wireExtra: (slot, grid, { processes, doc }) => {
-    const btn = slot.querySelector('[data-load-routing]');
-    if (!btn) return;
-    btn.onclick = async () => {
+    const rt = slot.querySelector('[data-load-routing]');
+    if (rt) rt.onclick = async () => {
       const routes = await db.all('item_processes', { filters: { item_code: doc.item_code }, sort: 'seq' }).catch(() => []);
       if (!routes.length) { toast('해당 품목의 표준 라우팅이 없습니다. (기준정보 ▸ 제품별표준공정)', 'error'); return; }
       const rows = routes.map((r, i) => ({
-        doc_no: doc.doc_no, seq: (i + 1) * 10, process_code: r.process_code, process_name: r.process_name,
+        doc_no: doc.doc_no, seq: (i + 1) * 10, process_no: String((i + 1) * 10),
+        process_code: r.process_code, process_name: r.process_name,
         process_type: r.in_out === '외주' ? '외주' : (String(r.process_name || '').includes('검사') ? '검사' : '가공'),
-        equipment: r.equipment || '', inspect_yn: String(r.process_name || '').includes('검사'),
+        equipment: r.equipment || '', outsource_yn: r.in_out === '외주',
+        inspect_yn: String(r.process_name || '').includes('검사'),
       }));
       grid.setRows(rows);
       toast(`표준 라우팅에서 공정 ${routes.length}개를 불러왔습니다. [저장]을 눌러 반영하세요.`);
+    };
+    const rn = slot.querySelector('[data-renumber]');
+    if (rn) rn.onclick = () => {
+      const rows = grid.getRows().map((r, i) => ({ ...r, process_no: String((i + 1) * 10) }));
+      grid.setRows(rows);
+      toast('공정번호를 10 단위로 재부여했습니다. [저장]을 눌러 반영하세요.');
     };
   },
   print: async (d) => {
     const rows = await db.all('pfd_items', { filters: { doc_no: d.doc_no }, sort: 'seq' }).catch(() => []);
     printDoc('공정 흐름도 (PFD)', d, docHead(d),
-      ['순번', '공정코드', '공정명', '공정구분', '설비', '투입품', '산출품', '검사공정', '비고'].map(h => `<th>${h}</th>`).join(''),
-      rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.process_code || ''}</td><td>${r.process_name || ''}</td><td>${r.process_type || ''}</td>
-        <td>${r.equipment || ''}</td><td>${r.input_item || ''}</td><td>${r.output_item || ''}</td><td>${r.inspect_yn ? '○' : ''}</td><td>${r.remark || ''}</td></tr>`).join('')
-      || '<tr><td colspan="9" style="text-align:center;color:#888">항목 없음</td></tr>');
+      ['공정번호', '공정명', '공정구분', '설비', '투입품', '산출품', '자재이동', '검사', '외주', '재작업', '보관', '특별특성', '비고'].map(h => `<th>${h}</th>`).join(''),
+      rows.map(r => `<tr><td>${r.process_no || ''}</td><td>${r.process_name || ''}</td><td>${r.process_type || ''}</td>
+        <td>${r.equipment || ''}</td><td>${r.input_item || ''}</td><td>${r.output_item || ''}</td><td>${r.material_flow || ''}</td>
+        <td>${r.inspect_yn ? '○' : ''}</td><td>${r.outsource_yn ? '○' : ''}</td><td>${r.rework_yn ? '○' : ''}</td><td>${r.storage_yn ? '○' : ''}</td>
+        <td>${r.char_type && r.char_type !== '일반' ? r.char_type : ''}</td><td>${r.remark || ''}</td></tr>`).join('')
+      || '<tr><td colspan="13" style="text-align:center;color:#888">항목 없음</td></tr>');
   },
 });
 
 // =====================================================================
-// 6-3 관리계획서
+// 6-2 PFMEA — PFD의 모든 공정을 동일 공정번호로 분석
+// =====================================================================
+export const pfmeaDocs = createDevDocPage({
+  docType: 'PFMEA', docPrefix: 'FMEA', detailTable: 'pfmea_items', detailTitle: 'PFMEA 분석표',
+  title: 'PFMEA', subtitle: 'PFD의 모든 공정에 대해 잠재적 고장형태·영향·원인을 분석하고 S·O·D로 위험도(RPN)를 산출합니다. 고위험·특별특성 항목은 관리계획서로 전개해야 합니다.',
+  emptyText: 'PFMEA 항목이 없습니다',
+  showProcess: false,
+  rowDefaults: { severity: 1, occurrence: 1, detection: 1, char_type: '일반' },
+  extraButtons: `<button class="btn btn--sm" data-load-pfd type="button">${icon('layers', 14)} PFD 공정 불러오기</button>
+    <button class="btn btn--sm" data-check-pfd type="button">${icon('shield', 14)} PFD 공정 누락 점검</button>`,
+  beforeSaveRow: (r) => {
+    r.rpn = (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1);
+    if (r.after_sev || r.after_occ || r.after_det) r.after_rpn = (Number(r.after_sev) || 1) * (Number(r.after_occ) || 1) * (Number(r.after_det) || 1);
+  },
+  cols: ({ processes }) => [
+    { key: 'process_no', label: '공정번호', width: '72px', align: 'center', placeholder: '10' },
+    { key: 'process_name', label: '공정명', width: '104px', placeholder: 'PFD 공정명' },
+    { key: 'func', label: '기능/요구사항', width: '116px' },
+    { key: 'fail_mode', label: '잠재적 고장형태', width: '124px', placeholder: '예: 용접 누락' },
+    { key: 'fail_effect', label: '잠재적 영향', width: '124px', placeholder: '예: 누설·조립 불가' },
+    { key: 'severity', label: 'S', type: 'number', width: '48px', align: 'center' },
+    { key: 'fail_cause', label: '잠재적 원인', width: '124px', placeholder: '예: 지그 위치 불량' },
+    { key: 'occurrence', label: 'O', type: 'number', width: '48px', align: 'center' },
+    { key: 'prevent_ctrl', label: '예방관리', width: '124px', placeholder: '예: 전용 지그·인터록' },
+    { key: 'detect_ctrl', label: '검출관리', width: '124px', placeholder: '예: 비전검사' },
+    { key: 'detection', label: 'D', type: 'number', width: '48px', align: 'center' },
+    {
+      key: 'rpn', label: 'RPN', width: '60px', align: 'center',
+      calc: (r) => (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1),
+      tone: (r) => { const v = (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1); return v >= 100 ? 'tone-danger' : v >= 60 ? 'tone-warning' : ''; },
+    },
+    { key: 'char_type', label: '특별특성', type: 'select', options: CHAR_TYPES, width: '92px', align: 'center' },
+    { key: 'action_plan', label: '개선대책', width: '124px' },
+    { key: 'action_owner', label: '담당', width: '72px' },
+    { key: 'after_sev', label: '개선S', type: 'number', width: '54px', align: 'center' },
+    { key: 'after_occ', label: '개선O', type: 'number', width: '54px', align: 'center' },
+    { key: 'after_det', label: '개선D', type: 'number', width: '54px', align: 'center' },
+    { key: 'after_rpn', label: '개선RPN', width: '66px', align: 'center', calc: (r) => (r.after_sev || r.after_occ || r.after_det) ? (Number(r.after_sev) || 1) * (Number(r.after_occ) || 1) * (Number(r.after_det) || 1) : '' },
+  ],
+  extraHeader: () => `<div class="flex" style="padding:10px 12px;background:var(--surface-2);border-radius:10px;gap:8px;margin-bottom:12px;font-size:12.5px">
+    ${icon('alert', 16)} <b>RPN = S × O × D</b> (100 이상 빨강 · 60 이상 주황). PFD의 <b>모든 공정</b>이 분석되어야 하며,
+    고위험(RPN 100↑)·특별특성 항목은 <b>관리계획서의 관리항목</b>으로 반드시 전개해야 합니다.</div>`,
+  wireExtra: (slot, grid, { doc }) => {
+    const load = slot.querySelector('[data-load-pfd]');
+    if (load) load.onclick = async () => {
+      const pfd = await latestDoc('PFD', doc.item_code);
+      if (!pfd) { toast('해당 품목의 PFD 문서가 없습니다. PFD를 먼저 작성하세요.', 'error'); return; }
+      const steps = await db.all('pfd_items', { filters: { doc_no: pfd.doc_no }, sort: 'seq' }).catch(() => []);
+      if (!steps.length) { toast('PFD에 등록된 공정이 없습니다.', 'error'); return; }
+      const cur = grid.getRows();
+      const rows = [...cur];
+      let added = 0;
+      for (const s of steps) {
+        if (cur.some(r => String(r.process_no || '') === String(s.process_no || ''))) continue;
+        rows.push({
+          doc_no: doc.doc_no, seq: (rows.length + 1) * 10,
+          process_no: s.process_no, process_name: s.process_name, func: s.output_item || '',
+          char_type: s.char_type || '일반', severity: 1, occurrence: 1, detection: 1,
+        });
+        added++;
+      }
+      if (!added) { toast('이미 모든 PFD 공정이 반영되어 있습니다.', 'error'); return; }
+      grid.setRows(rows);
+      toast(`PFD(${pfd.doc_no})에서 공정 ${added}개를 불러왔습니다. [저장]을 눌러 반영하세요.`);
+    };
+    const chk = slot.querySelector('[data-check-pfd]');
+    if (chk) chk.onclick = async () => {
+      const pfd = await latestDoc('PFD', doc.item_code);
+      if (!pfd) { toast('해당 품목의 PFD 문서가 없습니다.', 'error'); return; }
+      const steps = await db.all('pfd_items', { filters: { doc_no: pfd.doc_no }, sort: 'seq' }).catch(() => []);
+      const cur = grid.getRows();
+      const missing = steps.filter(s => !cur.some(r => String(r.process_no || '') === String(s.process_no || '')));
+      const extra = cur.filter(r => r.process_no && !steps.some(s => String(s.process_no) === String(r.process_no)));
+      const body = document.createElement('div');
+      body.innerHTML = `<div class="muted" style="margin-bottom:10px">PFD <b>${escapeHtml(pfd.doc_no)}</b> 대비 공정 반영 상태</div>
+        ${!missing.length && !extra.length ? `<div class="flex" style="padding:14px;background:var(--surface-2);border-radius:10px;gap:8px">${icon('checkCircle', 18)} <b>PFD의 모든 공정이 PFMEA에 반영되어 있습니다.</b></div>` : ''}
+        ${missing.length ? `<div style="margin-bottom:12px"><div style="font-weight:700;color:var(--danger);margin-bottom:6px">${icon('alert', 15)} PFMEA에 누락된 공정 ${missing.length}건</div>
+          <ul class="spec-list">${missing.map(s => `<li>${escapeHtml(s.process_no || '')} · ${escapeHtml(s.process_name || '')} (${escapeHtml(s.process_type || '')})</li>`).join('')}</ul></div>` : ''}
+        ${extra.length ? `<div><div style="font-weight:700;color:var(--warning);margin-bottom:6px">${icon('alert', 15)} PFD에 없는 공정 ${extra.length}건</div>
+          <ul class="spec-list">${extra.map(r => `<li>${escapeHtml(r.process_no || '')} · ${escapeHtml(r.process_name || '')}</li>`).join('')}</ul></div>` : ''}`;
+      openModal({
+        title: 'PFD 공정 누락 점검', body, wide: true,
+        footer: `<button class="btn" data-cancel>닫기</button>${missing.length ? `<button class="btn btn--primary" data-ok>${icon('plus', 16)} 누락 공정 추가</button>` : ''}`,
+        onMount: ({ footEl, close }) => {
+          footEl.querySelector('[data-cancel]').onclick = close;
+          footEl.querySelector('[data-ok]')?.addEventListener('click', () => {
+            const rows = [...grid.getRows()];
+            missing.forEach(s => rows.push({ doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process_no: s.process_no, process_name: s.process_name, func: s.output_item || '', char_type: s.char_type || '일반', severity: 1, occurrence: 1, detection: 1 }));
+            grid.setRows(rows); close(); toast(`${missing.length}개 공정을 추가했습니다. [저장]을 눌러 반영하세요.`);
+          });
+        },
+      });
+    };
+  },
+  print: async (d) => {
+    const rows = await db.all('pfmea_items', { filters: { doc_no: d.doc_no }, sort: 'seq' }).catch(() => []);
+    printDoc('공정 FMEA', d, docHead(d),
+      ['공정번호', '공정명', '기능', '잠재적 고장형태', '잠재적 영향', 'S', '잠재적 원인', 'O', '예방관리', '검출관리', 'D', 'RPN', '특별특성', '개선대책', '담당', '개선RPN'].map(h => `<th>${h}</th>`).join(''),
+      rows.map(r => `<tr><td>${r.process_no || ''}</td><td>${r.process_name || r.process || ''}</td><td>${r.func || ''}</td><td>${r.fail_mode || ''}</td><td>${r.fail_effect || ''}</td>
+        <td>${r.severity || ''}</td><td>${r.fail_cause || ''}</td><td>${r.occurrence || ''}</td><td>${r.prevent_ctrl || ''}</td><td>${r.detect_ctrl || ''}</td>
+        <td>${r.detection || ''}</td><td><b>${r.rpn || ''}</b></td><td>${r.char_type && r.char_type !== '일반' ? r.char_type : ''}</td>
+        <td>${r.action_plan || ''}</td><td>${r.action_owner || ''}</td><td>${r.after_rpn || ''}</td></tr>`).join('')
+      || '<tr><td colspan="16" style="text-align:center;color:#888">항목 없음</td></tr>');
+  },
+});
+
+// =====================================================================
+// 6-3 관리계획서 — PFMEA의 위험요소를 현장 관리항목으로 전개
 // =====================================================================
 export const controlPlans = createDevDocPage({
   docType: '관리계획서', docPrefix: 'CP', detailTable: 'control_plan_items', detailTitle: '관리항목',
-  title: '관리계획서', subtitle: '공정별 관리항목·규격·관리방법·검사주기·계측기·이상 시 조치를 정의합니다. PFD·PFMEA와 연계됩니다.',
+  title: '관리계획서', subtitle: 'PFMEA에서 분석한 위험요소 중 현장에서 실제 관리할 항목과 기준·방법·주기·수량·이상 시 조치를 정의합니다.',
   emptyText: '관리항목이 없습니다',
   showProcess: false,
-  rowDefaults: { char_type: '일반', inspect_cycle: '1회/LOT' },
-  extraButtons: `<button class="btn btn--sm" data-load-pfd type="button">${icon('layers', 14)} PFD·PFMEA 불러오기</button>`,
-  cols: ({ processes, instruments }) => [
-    { key: 'process', label: '공정', type: 'select', width: '110px', placeholder: '선택', options: () => processes.map(p => p.name) },
-    { key: 'ctrl_item', label: '관리항목', width: '150px', placeholder: '예: 내경 Ø25' },
-    { key: 'char_type', label: '특성', type: 'select', options: CHAR_TYPES, width: '96px', align: 'center' },
-    { key: 'spec_value', label: '규격', width: '120px', placeholder: '25.0 ±0.02' },
-    { key: 'ctrl_method', label: '관리방법', width: '130px', placeholder: '예: 3차원측정 / SPC' },
-    { key: 'inspect_cycle', label: '검사주기', type: 'select', width: '110px', options: ['초물', '중물', '종물', '초·중·종물', '1회/LOT', '전수', '주기(2h)', '주기(4h)'] },
-    { key: 'sample_size', label: '샘플수', width: '70px' },
-    { key: 'instrument', label: '계측기', type: 'select', width: '140px', placeholder: '선택', options: () => instruments.map(i => ({ value: i.code, label: `${i.code} · ${i.name}` })) },
-    { key: 'reaction_plan', label: '이상 시 조치', type: 'select', width: '150px', placeholder: '선택', options: ['설비정지 후 보고', '전수선별', '재작업', '공구교체', '부적합 등록', '초물 재검사'] },
-    { key: 'remark', label: '비고', width: '120px' },
+  rowDefaults: { char_kind: '제품특성', char_type: '일반', inspect_cycle: '1회/LOT' },
+  extraButtons: `<button class="btn btn--sm" data-load-pfd type="button">${icon('layers', 14)} PFD·PFMEA 불러오기</button>
+    <button class="btn btn--sm" data-check-fmea type="button">${icon('shield', 14)} 고위험 반영 점검</button>`,
+  cols: ({ processes, instruments, equipments, users }) => [
+    { key: 'process_no', label: '공정번호', width: '72px', align: 'center', placeholder: '10' },
+    { key: 'process_name', label: '공정명', width: '104px' },
+    { key: 'char_kind', label: '특성구분', type: 'select', options: ['제품특성', '공정특성'], width: '90px', align: 'center' },
+    { key: 'ctrl_item', label: '관리항목', width: '140px', placeholder: '예: 용접 위치' },
+    { key: 'char_type', label: '특별특성', type: 'select', options: CHAR_TYPES, width: '92px', align: 'center' },
+    { key: 'spec_value', label: '관리기준/규격', width: '124px', placeholder: '도면 기준 ±1mm' },
+    { key: 'ctrl_method', label: '관리방법', width: '124px', placeholder: '전용 게이지 / SPC' },
+    { key: 'instrument', label: '측정장비', type: 'select', width: '130px', placeholder: '선택', options: () => instruments.map(i => ({ value: i.code, label: `${i.code} · ${i.name}` })) },
+    { key: 'equipment', label: '설비/치공구', type: 'select', width: '124px', placeholder: '선택', options: () => equipments.map(e => ({ value: e.code, label: `${e.code} · ${e.name}` })) },
+    { key: 'inspect_cycle', label: '검사주기', type: 'select', width: '112px', options: INSPECT_CYCLES },
+    { key: 'inspect_qty', label: '검사수량', width: '78px', placeholder: '3ea / 전수' },
+    { key: 'owner', label: '담당자', type: 'select', width: '96px', placeholder: '선택', options: () => users.map(u => u.name) },
+    { key: 'reaction_plan', label: '이상 시 조치', type: 'select', width: '150px', placeholder: '선택', options: REACTION_PLANS },
+    { key: 'fmea_ref', label: '근거 PFMEA', width: '124px', placeholder: '고장형태' },
+    { key: 'remark', label: '비고', width: '110px' },
   ],
   extraHeader: () => `<div class="flex" style="padding:10px 12px;background:var(--surface-2);border-radius:10px;gap:8px;margin-bottom:12px;font-size:12.5px">
-    ${icon('shield', 16)} 특별특성 항목은 반드시 관리방법·검사주기·계측기를 지정해야 합니다. 등록된 관리항목은 검사규격관리와 함께 SQ 심사 확인 대상입니다.</div>`,
+    ${icon('shield', 16)} PFMEA의 <b>고위험(RPN 100↑)·특별특성</b> 항목은 반드시 관리항목으로 전개되어야 합니다.
+    검사주기·특별특성 표시는 <b>작업표준서와 동일</b>해야 하며, 측정장비는 계측기관리에 등록된 것만 지정합니다.</div>`,
   wireExtra: (slot, grid, { doc }) => {
-    const btn = slot.querySelector('[data-load-pfd]');
-    if (!btn) return;
-    btn.onclick = async () => {
-      const all = await db.all('dev_docs', {}).catch(() => []);
-      const pfd = all.filter(x => x.doc_type === 'PFD' && x.item_code === doc.item_code).sort((a, b) => String(b.rev || '').localeCompare(String(a.rev || '')))[0];
-      const fmea = all.filter(x => x.doc_type === 'PFMEA' && x.item_code === doc.item_code).sort((a, b) => String(b.rev || '').localeCompare(String(a.rev || '')))[0];
+    const load = slot.querySelector('[data-load-pfd]');
+    if (load) load.onclick = async () => {
+      const [pfd, fmea] = await Promise.all([latestDoc('PFD', doc.item_code), latestDoc('PFMEA', doc.item_code)]);
       const rows = [...grid.getRows()];
       let added = 0;
       if (pfd) {
         const steps = await db.all('pfd_items', { filters: { doc_no: pfd.doc_no }, sort: 'seq' }).catch(() => []);
         for (const s of steps) {
-          if (rows.some(r => r.process === s.process_name && !r.ctrl_item)) continue;
-          if (rows.some(r => r.process === s.process_name)) continue;
-          rows.push({ doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process: s.process_name, char_type: '일반', inspect_cycle: '1회/LOT' });
+          if (rows.some(r => String(r.process_no) === String(s.process_no))) continue;
+          rows.push({ doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process_no: s.process_no, process_name: s.process_name, char_kind: '공정특성', char_type: s.char_type || '일반', inspect_cycle: '1회/LOT' });
           added++;
         }
       }
       if (fmea) {
         const fitems = await db.all('pfmea_items', { filters: { doc_no: fmea.doc_no }, sort: 'seq' }).catch(() => []);
-        for (const f of fitems.filter(x => x.char_type && x.char_type !== '일반')) {
-          if (rows.some(r => r.process === f.process && r.ctrl_item === f.fail_mode)) continue;
-          rows.push({ doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process: f.process, ctrl_item: f.func || f.fail_mode, char_type: f.char_type, ctrl_method: f.detect_ctrl || '', inspect_cycle: '초·중·종물', reaction_plan: '전수선별' });
+        // 고위험(RPN 100↑) 또는 특별/중요특성 항목을 관리항목으로 전개
+        const targets = fitems.filter(f => (Number(f.rpn) || 0) >= 100 || (f.char_type && f.char_type !== '일반'));
+        for (const f of targets) {
+          const item = f.fail_mode ? `${f.fail_mode} 여부` : (f.func || '');
+          if (rows.some(r => String(r.process_no) === String(f.process_no) && r.ctrl_item === item)) continue;
+          rows.push({
+            doc_no: doc.doc_no, seq: (rows.length + 1) * 10,
+            process_no: f.process_no, process_name: f.process_name || f.process,
+            char_kind: '제품특성', ctrl_item: item, char_type: f.char_type || '일반',
+            ctrl_method: f.detect_ctrl || '', inspect_cycle: (Number(f.rpn) || 0) >= 100 ? '전수' : '초·중·종물',
+            reaction_plan: '설비정지 후 보고', fmea_ref: f.fail_mode || '',
+          });
           added++;
         }
       }
       if (!added) { toast('불러올 항목이 없습니다. PFD 또는 PFMEA를 먼저 작성하세요.', 'error'); return; }
       grid.setRows(rows);
-      toast(`${added}개 항목을 불러왔습니다. [저장]을 눌러 반영하세요.`);
+      toast(`${added}개 항목을 불러왔습니다. (PFMEA 고위험·특별특성 포함) [저장]을 눌러 반영하세요.`);
+    };
+    const chk = slot.querySelector('[data-check-fmea]');
+    if (chk) chk.onclick = async () => {
+      const fmea = await latestDoc('PFMEA', doc.item_code);
+      if (!fmea) { toast('해당 품목의 PFMEA 문서가 없습니다.', 'error'); return; }
+      const fitems = await db.all('pfmea_items', { filters: { doc_no: fmea.doc_no }, sort: 'seq' }).catch(() => []);
+      const cur = grid.getRows();
+      const targets = fitems.filter(f => (Number(f.rpn) || 0) >= 100 || (f.char_type && f.char_type !== '일반'));
+      const missing = targets.filter(f => !cur.some(r => String(r.process_no) === String(f.process_no)
+        && (r.fmea_ref === f.fail_mode || String(r.ctrl_item || '').includes(String(f.fail_mode || '__none__')))));
+      const body = document.createElement('div');
+      body.innerHTML = `<div class="muted" style="margin-bottom:10px">PFMEA <b>${escapeHtml(fmea.doc_no)}</b>의 고위험(RPN 100↑)·특별특성 항목 ${targets.length}건 기준</div>
+        ${!missing.length ? `<div class="flex" style="padding:14px;background:var(--surface-2);border-radius:10px;gap:8px">${icon('checkCircle', 18)} <b>고위험·특별특성 항목이 모두 관리계획서에 반영되어 있습니다.</b></div>`
+          : `<div style="font-weight:700;color:var(--danger);margin-bottom:8px">${icon('alert', 15)} 관리계획서에 미반영된 항목 ${missing.length}건</div>
+            <div class="table-wrap"><table class="grid"><thead><tr><th>공정</th><th>고장형태</th><th class="num">RPN</th><th class="center">특별특성</th><th>검출관리</th></tr></thead>
+            <tbody>${missing.map(f => `<tr><td>${escapeHtml(f.process_no || '')} ${escapeHtml(f.process_name || f.process || '')}</td>
+              <td class="cell-strong">${escapeHtml(f.fail_mode || '')}</td>
+              <td class="num mono" style="color:${(Number(f.rpn) || 0) >= 100 ? 'var(--danger)' : ''};font-weight:700">${f.rpn || ''}</td>
+              <td class="center">${f.char_type && f.char_type !== '일반' ? badge(f.char_type) : '-'}</td>
+              <td>${escapeHtml(f.detect_ctrl || '')}</td></tr>`).join('')}</tbody></table></div>`}`;
+      openModal({
+        title: 'PFMEA 고위험 항목 반영 점검', body, wide: true,
+        footer: `<button class="btn" data-cancel>닫기</button>${missing.length ? `<button class="btn btn--primary" data-ok>${icon('plus', 16)} 관리항목으로 추가</button>` : ''}`,
+        onMount: ({ footEl, close }) => {
+          footEl.querySelector('[data-cancel]').onclick = close;
+          footEl.querySelector('[data-ok]')?.addEventListener('click', () => {
+            const rows = [...grid.getRows()];
+            missing.forEach(f => rows.push({
+              doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process_no: f.process_no, process_name: f.process_name || f.process,
+              char_kind: '제품특성', ctrl_item: `${f.fail_mode || ''} 여부`, char_type: f.char_type || '일반',
+              ctrl_method: f.detect_ctrl || '', inspect_cycle: (Number(f.rpn) || 0) >= 100 ? '전수' : '초·중·종물',
+              reaction_plan: '설비정지 후 보고', fmea_ref: f.fail_mode || '',
+            }));
+            grid.setRows(rows); close(); toast(`${missing.length}개 관리항목을 추가했습니다. [저장]을 눌러 반영하세요.`);
+          });
+        },
+      });
     };
   },
   print: async (d) => {
     const rows = await db.all('control_plan_items', { filters: { doc_no: d.doc_no }, sort: 'seq' }).catch(() => []);
     printDoc('관 리 계 획 서', d, docHead(d),
-      ['№', '공정', '관리항목', '특성', '규격', '관리방법', '검사주기', '샘플', '계측기', '이상 시 조치'].map(h => `<th>${h}</th>`).join(''),
-      rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.process || ''}</td><td>${r.ctrl_item || ''}</td><td>${r.char_type || ''}</td><td>${r.spec_value || ''}</td>
-        <td>${r.ctrl_method || ''}</td><td>${r.inspect_cycle || ''}</td><td>${r.sample_size || ''}</td><td>${r.instrument || ''}</td><td>${r.reaction_plan || ''}</td></tr>`).join('')
-      || '<tr><td colspan="10" style="text-align:center;color:#888">항목 없음</td></tr>');
+      ['공정번호', '공정명', '특성구분', '관리항목', '특별특성', '관리기준/규격', '관리방법', '측정장비', '설비', '검사주기', '검사수량', '담당자', '이상 시 조치'].map(h => `<th>${h}</th>`).join(''),
+      rows.map(r => `<tr><td>${r.process_no || ''}</td><td>${r.process_name || r.process || ''}</td><td>${r.char_kind || ''}</td>
+        <td>${r.ctrl_item || ''}</td><td>${r.char_type && r.char_type !== '일반' ? r.char_type : ''}</td><td>${r.spec_value || ''}</td>
+        <td>${r.ctrl_method || ''}</td><td>${r.instrument || ''}</td><td>${r.equipment || ''}</td>
+        <td>${r.inspect_cycle || ''}</td><td>${r.inspect_qty || ''}</td><td>${r.owner || ''}</td><td>${r.reaction_plan || ''}</td></tr>`).join('')
+      || '<tr><td colspan="13" style="text-align:center;color:#888">항목 없음</td></tr>');
   },
 });
 
 // =====================================================================
-// 6-4 작업표준서
+// 6-4 작업표준서 — 관리계획서의 관리기준을 현장 실행 방법으로 구체화
 // =====================================================================
 export const workStandards = createDevDocPage({
   docType: '작업표준서', docPrefix: 'WS', detailTable: 'work_std_steps', detailTitle: '작업단계',
-  title: '작업표준서', subtitle: '공정별 작업단계·작업방법·작업조건·주의사항·품질확인사항을 정의합니다. 승인된 최신본만 현장(POP)에 표시됩니다.',
+  title: '작업표준서', subtitle: '관리계획서에서 정한 관리사항을 작업자가 실제로 수행할 수 있는 방법으로 작성합니다. 승인된 최신본만 현장(POP)에 표시됩니다.',
   emptyText: '작업단계가 없습니다',
   showProcess: true,
-  extraButtons: `<button class="btn btn--sm" data-load-cp type="button">${icon('layers', 14)} 관리계획서 항목 불러오기</button>`,
+  extraButtons: `<button class="btn btn--sm" data-load-cp type="button">${icon('layers', 14)} 관리계획서 불러오기</button>
+    <button class="btn btn--sm" data-check-cp type="button">${icon('shield', 14)} 관리계획서 일치 점검</button>`,
   cols: () => [
-    { key: 'step_name', label: '작업단계', width: '130px', placeholder: '예: 1. 소재 장착' },
-    { key: 'method', label: '작업방법', type: 'textarea', width: '200px' },
-    { key: 'condition', label: '작업조건', width: '140px', placeholder: '회전수 1200rpm, 이송 0.15' },
-    { key: 'tools_used', label: '사용 공구/치공구', width: '130px' },
-    { key: 'quality_check', label: '품질확인사항', type: 'textarea', width: '170px' },
-    { key: 'caution', label: '주의사항', type: 'textarea', width: '170px' },
-    { key: 'reaction', label: '이상 시 조치', width: '130px' },
-    { key: 'photo_url', label: '사진 URL', width: '130px' },
+    { key: 'process_no', label: '공정번호', width: '72px', align: 'center', placeholder: '10' },
+    { key: 'process_name', label: '공정명', width: '96px' },
+    { key: 'step_name', label: '작업순서/단계', width: '132px', placeholder: '예: 1. 부품 장착' },
+    { key: 'material_setup', label: '자재 장착 방법', type: 'textarea', width: '150px', placeholder: '지그에 정확히 안착 후 클램프 고정' },
+    { key: 'equipment_op', label: '설비 조작 방법', type: 'textarea', width: '150px', placeholder: '조건 확인 후 양손 시작버튼' },
+    { key: 'condition', label: '작업조건', width: '130px', placeholder: '전류 110A, 전압 14V' },
+    { key: 'tools_used', label: '사용 공구/치공구', width: '120px' },
+    { key: 'quality_check', label: '품질 확인 방법', type: 'textarea', width: '160px', placeholder: '게이지 영점→측정 위치→기록' },
+    { key: 'inspect_cycle', label: '검사주기', type: 'select', width: '110px', options: INSPECT_CYCLES },
+    { key: 'safety', label: '안전수칙', type: 'textarea', width: '140px', placeholder: '보안경 착용, 클램프 작동 시 손 주의' },
+    { key: 'reaction', label: '이상 시 조치', type: 'select', width: '146px', placeholder: '선택', options: REACTION_PLANS },
+    { key: 'ok_sample_url', label: '양품 예시 URL', width: '120px' },
+    { key: 'ng_sample_url', label: '불량 예시 URL', width: '120px' },
+    { key: 'photo_url', label: '작업사진 URL', width: '120px' },
+    { key: 'cp_ref', label: '근거 관리항목', width: '124px' },
   ],
   extraHeader: (d) => `<div class="flex" style="padding:10px 12px;background:var(--surface-2);border-radius:10px;gap:8px;margin-bottom:12px;font-size:12.5px">
-    ${icon('monitor', 16)} ${d.status === '승인' ? '<b>승인본</b>이므로 현장 키오스크(POP)에 표시됩니다.' : '승인 후 현장 키오스크(POP)에 표시됩니다.'} 작업단계별 사진 URL을 입력하면 현장에서 함께 표시됩니다.</div>`,
+    ${icon('monitor', 16)} ${d.status === '승인' ? '<b>승인본</b>이므로 현장 키오스크(POP)에 표시됩니다.' : '승인 후 현장 키오스크(POP)에 표시됩니다.'}
+    관리계획서의 <b>관리항목·검사주기·이상 시 조치</b>가 동일하게 반영되어야 하며, 양품·불량 판정 예시 사진을 등록하면 현장에서 함께 표시됩니다.</div>`,
   wireExtra: (slot, grid, { doc }) => {
-    const btn = slot.querySelector('[data-load-cp]');
-    if (!btn) return;
-    btn.onclick = async () => {
-      const all = await db.all('dev_docs', {}).catch(() => []);
-      const cp = all.filter(x => x.doc_type === '관리계획서' && x.item_code === doc.item_code).sort((a, b) => String(b.rev || '').localeCompare(String(a.rev || '')))[0];
+    const load = slot.querySelector('[data-load-cp]');
+    if (load) load.onclick = async () => {
+      const cp = await latestDoc('관리계획서', doc.item_code);
       if (!cp) { toast('해당 품목의 관리계획서가 없습니다.', 'error'); return; }
       let citems = await db.all('control_plan_items', { filters: { doc_no: cp.doc_no }, sort: 'seq' }).catch(() => []);
-      if (doc.process) citems = citems.filter(c => c.process === doc.process);
+      if (doc.process) citems = citems.filter(c => (c.process_name || c.process) === doc.process);
       if (!citems.length) { toast('불러올 관리항목이 없습니다.', 'error'); return; }
       const rows = [...grid.getRows()];
+      let added = 0;
       citems.forEach(c => {
+        if (rows.some(r => r.cp_ref === c.ctrl_item && String(r.process_no) === String(c.process_no))) return;
         rows.push({
           doc_no: doc.doc_no, seq: (rows.length + 1) * 10,
-          step_name: `${c.process || ''} — ${c.ctrl_item || ''}`,
-          quality_check: `${c.ctrl_item || ''} ${c.spec_value || ''} (${c.inspect_cycle || ''}, ${c.instrument || ''})`,
-          reaction: c.reaction_plan || '',
+          process_no: c.process_no, process_name: c.process_name || c.process,
+          step_name: `${c.ctrl_item || ''} 확인`,
+          quality_check: `${c.ctrl_item || ''} ${c.spec_value || ''} — ${c.ctrl_method || ''} (${c.instrument || '육안'}) ${c.inspect_qty ? `${c.inspect_qty}` : ''}`,
+          inspect_cycle: c.inspect_cycle || '', reaction: c.reaction_plan || '', cp_ref: c.ctrl_item || '',
         });
+        added++;
       });
+      if (!added) { toast('이미 모든 관리항목이 반영되어 있습니다.', 'error'); return; }
       grid.setRows(rows);
-      toast(`관리계획서에서 ${citems.length}개 항목을 불러왔습니다. [저장]을 눌러 반영하세요.`);
+      toast(`관리계획서에서 ${added}개 항목을 불러왔습니다. [저장]을 눌러 반영하세요.`);
+    };
+    const chk = slot.querySelector('[data-check-cp]');
+    if (chk) chk.onclick = async () => {
+      const cp = await latestDoc('관리계획서', doc.item_code);
+      if (!cp) { toast('해당 품목의 관리계획서가 없습니다.', 'error'); return; }
+      let citems = await db.all('control_plan_items', { filters: { doc_no: cp.doc_no }, sort: 'seq' }).catch(() => []);
+      if (doc.process) citems = citems.filter(c => (c.process_name || c.process) === doc.process);
+      const cur = grid.getRows();
+      const missing = citems.filter(c => !findWsRow(cur, c));
+      // 검사주기 불일치
+      const mismatch = [];
+      for (const c of citems) {
+        const r = findWsRow(cur, c);
+        if (r && c.inspect_cycle && r.inspect_cycle && r.inspect_cycle !== c.inspect_cycle) {
+          mismatch.push({ item: c.ctrl_item, cp: c.inspect_cycle, ws: r.inspect_cycle, row: r });
+        }
+      }
+      const body = document.createElement('div');
+      body.innerHTML = `<div class="muted" style="margin-bottom:10px">관리계획서 <b>${escapeHtml(cp.doc_no)}</b> (Rev.${escapeHtml(cp.rev || 'A')}) 대비 반영 상태</div>
+        ${!missing.length && !mismatch.length ? `<div class="flex" style="padding:14px;background:var(--surface-2);border-radius:10px;gap:8px">${icon('checkCircle', 18)} <b>관리항목과 검사주기가 모두 일치합니다.</b></div>` : ''}
+        ${missing.length ? `<div style="margin-bottom:12px"><div style="font-weight:700;color:var(--danger);margin-bottom:6px">${icon('alert', 15)} 작업표준서에 미반영된 관리항목 ${missing.length}건</div>
+          <ul class="spec-list">${missing.map(c => `<li>${escapeHtml(c.process_no || '')} · <b>${escapeHtml(c.ctrl_item || '')}</b> (${escapeHtml(c.spec_value || '')}, ${escapeHtml(c.inspect_cycle || '')})</li>`).join('')}</ul></div>` : ''}
+        ${mismatch.length ? `<div><div style="font-weight:700;color:var(--warning);margin-bottom:6px">${icon('alert', 15)} 검사주기 불일치 ${mismatch.length}건</div>
+          <div class="table-wrap"><table class="grid"><thead><tr><th>관리항목</th><th>관리계획서</th><th>작업표준서</th></tr></thead>
+          <tbody>${mismatch.map(m => `<tr><td class="cell-strong">${escapeHtml(m.item)}</td><td>${escapeHtml(m.cp)}</td>
+            <td style="color:var(--danger);font-weight:700">${escapeHtml(m.ws)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+      openModal({
+        title: '관리계획서 일치 점검', body, wide: true,
+        footer: `<button class="btn" data-cancel>닫기</button>${(missing.length || mismatch.length) ? `<button class="btn btn--primary" data-ok>${icon('check', 16)} 자동 반영</button>` : ''}`,
+        onMount: ({ footEl, close }) => {
+          footEl.querySelector('[data-cancel]').onclick = close;
+          footEl.querySelector('[data-ok]')?.addEventListener('click', () => {
+            const rows = [...grid.getRows()];
+            missing.forEach(c => rows.push({
+              doc_no: doc.doc_no, seq: (rows.length + 1) * 10, process_no: c.process_no, process_name: c.process_name || c.process,
+              step_name: `${c.ctrl_item || ''} 확인`,
+              quality_check: `${c.ctrl_item || ''} ${c.spec_value || ''} — ${c.ctrl_method || ''} (${c.instrument || '육안'})`,
+              inspect_cycle: c.inspect_cycle || '', reaction: c.reaction_plan || '', cp_ref: c.ctrl_item || '',
+            }));
+            // 검사주기 동기화
+            mismatch.forEach(m => { const r = rows.find(x => x === m.row) || rows.find(x => x.cp_ref === m.item); if (r) { r.inspect_cycle = m.cp; r.cp_ref = m.item; } });
+            grid.setRows(rows); close();
+            toast(`미반영 ${missing.length}건 추가 · 검사주기 ${mismatch.length}건 동기화. [저장]을 눌러 반영하세요.`);
+          });
+        },
+      });
     };
   },
   print: async (d) => {
     const rows = await db.all('work_std_steps', { filters: { doc_no: d.doc_no }, sort: 'seq' }).catch(() => []);
     printDoc('작 업 표 준 서', d, docHead(d, `<tr><th>공정</th><td colspan="5">${d.process || '전체'}</td></tr>`),
-      ['№', '작업단계', '작업방법', '작업조건', '사용공구', '품질확인사항', '주의사항', '이상 시 조치'].map(h => `<th>${h}</th>`).join(''),
-      rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.step_name || ''}</td><td>${(r.method || '').replace(/\n/g, '<br>')}</td><td>${r.condition || ''}</td>
-        <td>${r.tools_used || ''}</td><td>${(r.quality_check || '').replace(/\n/g, '<br>')}</td><td>${(r.caution || '').replace(/\n/g, '<br>')}</td><td>${r.reaction || ''}</td></tr>`).join('')
-      || '<tr><td colspan="8" style="text-align:center;color:#888">항목 없음</td></tr>');
+      ['공정번호', '작업순서', '자재 장착', '설비 조작', '작업조건', '사용공구', '품질 확인', '검사주기', '안전수칙', '이상 시 조치'].map(h => `<th>${h}</th>`).join(''),
+      rows.map(r => `<tr><td>${r.process_no || ''}</td><td>${r.step_name || ''}</td>
+        <td>${(r.material_setup || '').replace(/\n/g, '<br>')}</td><td>${(r.equipment_op || r.method || '').replace(/\n/g, '<br>')}</td>
+        <td>${r.condition || ''}</td><td>${r.tools_used || ''}</td>
+        <td>${(r.quality_check || '').replace(/\n/g, '<br>')}</td><td>${r.inspect_cycle || ''}</td>
+        <td>${(r.safety || r.caution || '').replace(/\n/g, '<br>')}</td><td>${r.reaction || ''}</td></tr>`).join('')
+      || '<tr><td colspan="10" style="text-align:center;color:#888">항목 없음</td></tr>');
   },
 });
