@@ -12,6 +12,17 @@ const WORKER_KEY = 'mes_pop_worker';
 function getWorker() { return localStorage.getItem(WORKER_KEY) || ''; }
 function setWorker(v) { localStorage.setItem(WORKER_KEY, v); }
 
+// 생산 중 4M 변경 — 4M 구분 / 변경등급 (change.js와 동일 기준)
+const POP_4M_KINDS = [
+  { key: 'Man', label: 'Man (작업자)', ic: 'users' }, { key: 'Machine', label: 'Machine (설비)', ic: 'cpu' },
+  { key: 'Material', label: 'Material (자재)', ic: 'box' }, { key: 'Method', label: 'Method (방법)', ic: 'route' },
+];
+const POP_4M_GRADES = [
+  { key: '단순이력', label: '단순 이력변경', approval: false }, { key: '내부승인', label: '내부 승인변경', approval: true },
+  { key: '중요4M', label: '중요 4M 변경', approval: true }, { key: '비상', label: '비상 변경', approval: true },
+];
+const gradeNeedsApproval = (k) => (POP_4M_GRADES.find(g => g.key === k) || POP_4M_GRADES[1]).approval;
+
 // =====================================================================
 // POP 메인 — 작업지시 목록
 // =====================================================================
@@ -157,6 +168,37 @@ export async function popDetail(root, params = {}) {
   try { allTools = (await db.all('tools', {})).filter(t => t.use_yn !== false); } catch { allTools = []; }
   try { toolLots = (await db.all('tool_movements', {})).filter(m => m.move_type === '입고'); } catch { toolLots = []; }
   try { toolUsages = await db.all('tool_usages', {}); } catch { toolUsages = []; }
+
+  // 4M 스냅샷 · 생산 중 4M 변경 (v4 테이블 미생성 시 무시)
+  let snaps = [], fmChanges = [], devDocsAll = [];
+  try { snaps = await db.all('wo_4m_snapshots', { filters: { wo_no: wo.wo_no }, sort: 'seg_no' }); } catch { snaps = []; }
+  try { fmChanges = await db.all('four_m_changes', { filters: { wo_no: wo.wo_no } }); } catch { fmChanges = []; }
+  try { devDocsAll = await db.all('dev_docs', {}); } catch { devDocsAll = []; }
+  const baseLot = () => wo.lot_no || ('LOT-' + wo.wo_no);
+  const segLot = (seg) => `${baseLot()}${seg > 1 ? '-C' + (seg - 1) : ''}`;
+  const curSegOf = (p) => { const s = snaps.filter(x => String(x.process_id) === String(p.id)); return s.length ? Math.max(...s.map(x => +x.seg_no || 1)) : 1; };
+  const pending4mOf = (p) => fmChanges.find(c => String(c.process_id) === String(p.id) && c.source === '생산중변경' && gradeNeedsApproval(c.grade) && c.status !== '승인');
+  const latestWorkStd = (code, proc) => devDocsAll.filter(d => d.doc_type === '작업표준서' && d.item_code === code && (!d.process || !proc || d.process === proc))
+    .sort((a, b) => (b.status === '승인' ? 1 : 0) - (a.status === '승인' ? 1 : 0) || String(b.rev || '').localeCompare(String(a.rev || '')))[0] || null;
+  async function reloadFm() {
+    try { snaps = await db.all('wo_4m_snapshots', { filters: { wo_no: wo.wo_no }, sort: 'seg_no' }); } catch { /* noop */ }
+    try { fmChanges = await db.all('four_m_changes', { filters: { wo_no: wo.wo_no } }); } catch { /* noop */ }
+  }
+  async function createSnapshot(p, seg, fm, overrides = {}) {
+    try {
+      const code = p.item_code || wo.item_code;
+      const std = latestWorkStd(code, p.process_name);
+      await db.insert('wo_4m_snapshots', {
+        wo_no: wo.wo_no, process_id: String(p.id), seg_no: seg, lot_no: segLot(seg),
+        item_code: code, item_name: itemNameOf(code), process: p.process_name,
+        man_worker: p.worker || '', machine_equipment: p.equipment || '', machine_no: p.machine_no || wo.machine_no || '',
+        material_lot: '', work_std_no: std?.doc_no || '', work_std_rev: std?.rev || '',
+        start_at: new Date().toISOString(), fm_no: fm?.fm_no || null, approved: fm ? !gradeNeedsApproval(fm.grade) : true,
+        ...overrides,
+      });
+      await reloadFm();
+    } catch { /* 테이블 미생성 시 무시 */ }
+  }
   const toolsForProcess = (procName) => allTools.filter(t => t.process && t.process === procName);
   // 입고수량을 1개 단위 LOT(입고번호-01,-02…)으로 분해해 반환 (재고관리와 동일 규칙)
   function lotsForTool(code) {
@@ -209,10 +251,37 @@ export async function popDetail(root, params = {}) {
       <div class="pop-detail-grid">
         <div id="proc-list"></div>
         <div class="card"><div class="card__head">${icon('layers', 18)}<h3>BOM 구조</h3></div><div class="card__body" id="bom-panel"></div></div>
-      </div>`;
+      </div>
+      <div id="fm-panel" style="margin-top:16px"></div>`;
     bindBack(root);
     renderProcs();
     renderBomPanel();
+    renderFmPanel();
+  }
+
+  // 생산 중 4M 변경 이력 — 변경 전/후 LOT·수량 분리 현황
+  function renderFmPanel() {
+    const panel = root.querySelector('#fm-panel');
+    if (!panel) return;
+    const list = fmChanges.filter(c => c.source === '생산중변경').sort((a, b) => String(a.change_time || '').localeCompare(String(b.change_time || '')));
+    if (!list.length) { panel.innerHTML = ''; return; }
+    panel.innerHTML = `<div class="card"><div class="card__head">${icon('refresh', 18)}<h3>생산 중 4M 변경 이력 <span class="muted" style="font-weight:500">${list.length}건 · 변경 전/후 LOT 분리</span></h3></div>
+      <div class="card__body"><div class="table-wrap"><table class="grid">
+        <thead><tr><th>변경번호</th><th class="center">4M</th><th class="center">등급</th><th>공정</th><th>변경 내용</th>
+          <th class="center">변경 전 LOT · 수량</th><th class="center">변경 후 LOT</th><th class="center">변경시각</th><th class="center">상태</th></tr></thead>
+        <tbody>${list.map(c => `<tr>
+          <td class="cell-code">${escapeHtml(c.fm_no)}</td>
+          <td class="center">${badge(c.category || '', 'brand')}</td>
+          <td class="center">${badge(c.grade || '내부승인', gradeNeedsApproval(c.grade) ? 'warning' : 'neutral')}</td>
+          <td>${escapeHtml(c.process || '')}</td>
+          <td><span class="muted">${escapeHtml(c.before_desc || '')}</span> → <b style="color:var(--brand)">${escapeHtml(c.after_desc || '')}</b></td>
+          <td class="center"><span class="cell-code">${escapeHtml(c.before_lot || '-')}</span> · ${num(c.before_qty || 0)}</td>
+          <td class="center cell-code">${escapeHtml(c.after_lot || '-')}</td>
+          <td class="center mono">${c.change_time ? new Date(c.change_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+          <td class="center">${c.status === '승인' ? badge('승인', 'success') : badge(gradeNeedsApproval(c.grade) ? '승인대기' : c.status || '신청', 'warning')}</td>
+        </tr>`).join('')}</tbody></table></div>
+        <div class="muted" style="margin-top:8px;font-size:12px">${icon('alert', 13)} 승인대기 상태의 변경은 해당 공정에서 [4M 승인대기]로 표시되며, 4M 관리에서 승인해야 작업을 재개할 수 있습니다.</div>
+      </div></div>`;
   }
 
   // 현재 진행/예정 공정의 대상 품목 (BOM에서 위치 강조)
@@ -297,6 +366,7 @@ export async function popDetail(root, params = {}) {
     slot.querySelectorAll('[data-start]').forEach(b => b.onclick = () => startProc(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-end]').forEach(b => b.onclick = () => endProc(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => openToolUse(b.closest('[data-id]').dataset.id));
+    slot.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => openFourMChange(b.closest('[data-id]').dataset.id));
   }
 
   // 공구 투입 (선택사항) — 진행 공정에서 그 공정에 지정된 공구를 LOT 기준으로 투입
@@ -349,6 +419,84 @@ export async function popDetail(root, params = {}) {
     });
   }
 
+  // 생산 중 4M 변경 — 변경 전 생산분과 변경 후 생산분을 LOT 세그먼트로 분리
+  function openFourMChange(id) {
+    const p = procs.find(x => String(x.id) === String(id));
+    const seg = curSegOf(p);
+    const snap = snaps.filter(s => String(s.process_id) === String(p.id)).sort((a, b) => (+b.seg_no || 1) - (+a.seg_no || 1))[0];
+    const beforeAuto = { Man: p.worker || snap?.man_worker || '', Machine: p.equipment || snap?.machine_equipment || '', Material: snap?.material_lot || '', Method: `${snap?.work_std_no || ''} ${snap?.work_std_rev ? 'Rev.' + snap.work_std_rev : ''}`.trim() };
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    body.innerHTML = `
+      <div class="field col-2"><label>공정 / 현재 LOT</label><input class="input" value="${escapeHtml(p.process_name || '')} · ${escapeHtml(segLot(seg))}" readonly></div>
+      <div class="field col-2"><label>4M 구분 <span class="req">*</span></label>
+        <div class="chips" id="pfm-kind">${POP_4M_KINDS.map((k, i) => `<button type="button" class="chip ${i === 1 ? 'active' : ''}" data-kind="${k.key}">${icon(k.ic, 14)} ${escapeHtml(k.label)}</button>`).join('')}</div>
+        <input type="hidden" name="category" value="Machine"></div>
+      <div class="field col-2"><label>변경 등급 <span class="req">*</span></label>
+        <div class="chips" id="pfm-grade">${POP_4M_GRADES.map((gg, i) => `<button type="button" class="chip ${i === 1 ? 'active' : ''}" data-grade="${gg.key}">${escapeHtml(gg.label)}</button>`).join('')}</div>
+        <input type="hidden" name="grade" value="내부승인"></div>
+      <div class="field"><label>변경 전 생산수량 <span class="req">*</span></label><input class="input" name="before_qty" type="number" min="0" step="any" value="0" placeholder="변경 시점까지 생산한 수량"></div>
+      <div class="field"><label>변경 사유 <span class="req">*</span></label><input class="input" name="reason" placeholder="예: 용접기 1호기 고장"></div>
+      <div class="field col-2"><label>변경 전 <span class="muted" data-before-label>기존 설비</span></label><textarea class="textarea" name="before_desc">${escapeHtml(beforeAuto.Machine)}</textarea></div>
+      <div class="field col-2"><label>변경 후 <span class="muted" data-after-label>변경 설비</span> <span class="req">*</span></label><textarea class="textarea" name="after_desc" placeholder="예: 용접기 2호기 사용"></textarea></div>
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:10px 12px;border-radius:10px">
+        ${icon('alert', 15)} 변경 전 생산분은 <b>${escapeHtml(segLot(seg))}</b>로 보존되고, 변경 후 생산분은 <b>${escapeHtml(segLot(seg + 1))}</b>로 분리됩니다.
+        <b>내부승인·중요4M·비상</b> 등급은 4M 관리에서 승인 후 작업을 재개할 수 있습니다.</div>`;
+    const setBefore = (kind) => { body.querySelector('[name="before_desc"]').value = beforeAuto[kind] || ''; };
+    body.querySelectorAll('#pfm-kind [data-kind]').forEach(b => b.onclick = () => {
+      body.querySelectorAll('#pfm-kind [data-kind]').forEach(x => x.classList.toggle('active', x === b));
+      body.querySelector('[name="category"]').value = b.dataset.kind;
+      const k = POP_4M_KINDS.find(x => x.key === b.dataset.kind);
+      body.querySelector('[data-before-label]').textContent = `기존 ${k.label.split(' ')[0]}`;
+      body.querySelector('[data-after-label]').textContent = `변경 ${k.label.split(' ')[0]}`;
+      if (!body.querySelector('[name="before_desc"]').value) setBefore(b.dataset.kind);
+    });
+    body.querySelectorAll('#pfm-grade [data-grade]').forEach(b => b.onclick = () => {
+      body.querySelectorAll('#pfm-grade [data-grade]').forEach(x => x.classList.toggle('active', x === b));
+      body.querySelector('[name="grade"]').value = b.dataset.grade;
+    });
+    openModal({
+      title: `생산 중 4M 변경 — ${p.process_name}`, body, wide: true,
+      footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 변경 등록</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        footEl.querySelector('[data-ok]').onclick = async () => {
+          const g = (n) => body.querySelector(`[name="${n}"]`).value.trim();
+          if (!g('reason')) { toast('변경 사유를 입력하세요.', 'error'); return; }
+          if (!g('after_desc')) { toast('변경 후 내용을 입력하세요.', 'error'); return; }
+          const grade = g('grade'); const needApprove = gradeNeedsApproval(grade);
+          const code = p.item_code || wo.item_code;
+          try {
+            const all = await db.all('four_m_changes', {}).catch(() => []);
+            const fm_no = nextDocNo('4M', all.map(x => x.fm_no));
+            const rec = {
+              fm_no, source: '생산중변경', category: g('category'), grade,
+              change_date: todayStr(), change_time: new Date().toISOString(),
+              item_code: code, item_name: itemNameOf(code), process: p.process_name,
+              wo_no: wo.wo_no, process_id: String(p.id), lot_no: baseLot(),
+              before_desc: g('before_desc'), after_desc: g('after_desc'), reason: g('reason'),
+              before_qty: Number(g('before_qty')) || 0, before_lot: segLot(seg), after_lot: segLot(seg + 1),
+              status: needApprove ? '신청' : '승인', apply_status: '적용중',
+              approve_date: needApprove ? null : todayStr(),
+            };
+            await db.insert('four_m_changes', rec);
+            // 변경 후 세그먼트 스냅샷 생성 (변경된 M 반영)
+            const ov = {};
+            if (g('category') === 'Man') ov.man_worker = g('after_desc');
+            else if (g('category') === 'Machine') ov.machine_equipment = g('after_desc');
+            else if (g('category') === 'Material') ov.material_lot = g('after_desc');
+            await createSnapshot(p, seg + 1, rec, ov);
+            await reloadFm();
+            close();
+            render();
+            if (needApprove) toast(`4M 변경(${fm_no}) 등록 — 4M 관리에서 승인 후 작업을 재개하세요.`, 'info');
+            else toast(`4M 변경(${fm_no}) 등록 — 변경 후 LOT ${segLot(seg + 1)}로 분리되었습니다.`);
+          } catch (e) { toast(e.message || '4M 변경 등록 실패', 'error'); }
+        };
+      },
+    });
+  }
+
   // 반제품 공정이 모두 끝나야 완제품(모품목) 공정 시작 가능
   function subPending() { return procs.some(x => x.item_code && x.item_code !== wo.item_code && x.status !== '완료'); }
   function isParentStep(p) { return !p.item_code || p.item_code === wo.item_code; }
@@ -377,8 +525,11 @@ export async function popDetail(root, params = {}) {
     const st = p.status || '대기';
     if (st === '완료') return `<span class="badge badge--success" style="height:36px;padding:0 16px;font-size:14px">완료</span>`;
     if (st === '진행') {
+      const pend = pending4mOf(p);
+      if (pend) return `<span class="badge badge--warning" style="height:36px;padding:0 14px;font-size:13px" title="4M 변경 승인 후 작업을 재개할 수 있습니다">${icon('clock', 16)} 4M 승인대기 · ${escapeHtml(pend.fm_no)}</span>`;
       const toolBtn = toolsForProcess(p.process_name).length ? `<button class="btn btn--pop" data-tool style="background:var(--surface);color:var(--text)">${icon('tool', 16)} 공구투입</button>` : '';
-      return `${toolBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
+      const fmBtn = `<button class="btn btn--pop" data-fm style="background:var(--surface);color:var(--text)">${icon('refresh', 16)} 4M 변경</button>`;
+      return `${toolBtn}${fmBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
     }
     const blocked = stepBlockReason(p);
     if (blocked) return `<button class="btn btn--pop" disabled title="${blocked} 시작 가능">${icon('clock', 18)} 대기</button>`;
@@ -447,9 +598,11 @@ export async function popDetail(root, params = {}) {
             const upd = await db.update('work_order_processes', id, { status: '진행', start_at: startAt, worker, equipment });
             Object.assign(p, upd || { status: '진행', start_at: startAt, worker, equipment });
             setWorker(worker);
+            // 작업 시작 시점의 4M 조건을 스냅샷으로 보존 (최초 세그먼트)
+            if (!snaps.some(s => String(s.process_id) === String(p.id))) await createSnapshot(p, 1, null);
             await syncWoStatus();
             close();
-            toast(`[${p.process_name}] 작업을 시작했습니다.`);
+            toast(`[${p.process_name}] 작업을 시작했습니다. (4M 스냅샷 저장)`);
             render();
           } catch (e) { toast(e.message || '시작 실패', 'error'); }
         };
@@ -536,12 +689,16 @@ export async function popDetail(root, params = {}) {
       const all = await db.all('production_results', {});
       const result_no = nextDocNo('PR', all.map(x => x.result_no));
       const code = p.item_code || wo.item_code;
+      const seg = curSegOf(p);
       await db.insert('production_results', {
-        result_no, result_date: todayStr(), wo_no: wo.wo_no, lot_no: wo.lot_no || ('LOT-' + wo.wo_no), item_code: code, item_name: itemNameOf(code),
+        result_no, result_date: todayStr(), wo_no: wo.wo_no, lot_no: segLot(seg), item_code: code, item_name: itemNameOf(code),
         process: p.process_name, equipment: p.equipment || wo.equipment, machine_no: p.machine_no || wo.machine_no || '', worker: p.worker || getWorker(),
         prod_qty: (Number(good) || 0) + (Number(defect) || 0), good_qty: good, defect_qty: defect,
         rework_yn: !!p.is_rework, work_time: workTime, status: '완료',
       });
+      // 현재 4M 세그먼트 마감 (종료 시각·세그먼트 생산수량)
+      const cur = snaps.filter(s => String(s.process_id) === String(p.id)).sort((a, b) => (+b.seg_no || 1) - (+a.seg_no || 1))[0];
+      if (cur && !cur.end_at) { try { await db.update('wo_4m_snapshots', cur.id, { end_at: new Date().toISOString(), seg_qty: (Number(good) || 0) + (Number(defect) || 0) }); } catch { /* noop */ } }
     } catch { /* 실적 등록 실패는 공정 종료를 막지 않음 */ }
   }
 

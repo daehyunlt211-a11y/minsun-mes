@@ -13,7 +13,8 @@ import { icon } from '../ui/icons.js';
 import { createGridEditor } from '../lib/gridEditor.js';
 
 const STATUSES = ['작성중', '검토중', '승인', '개정', '폐기'];
-const CHAR_TYPES = ['일반', '중요특성', '특별특성'];
+const CHAR_TYPES = ['일반', '중요특성', '특별특성', '안전특성'];
+const AP_LEVELS = ['', 'Low', 'Medium', 'High'];
 // 관리계획서·작업표준서가 공유하는 검사주기(불일치 방지를 위해 동일 목록 사용)
 export const INSPECT_CYCLES = ['초물', '중물', '종물', '초·중·종물', '1회/LOT', '전수', '주기(1h)', '주기(2h)', '주기(4h)', '작업시작 시', '작업종료 시'];
 // 관리계획서·작업표준서가 공유하는 이상 시 조치
@@ -408,6 +409,7 @@ export const pfdDocs = createDevDocPage({
     { key: 'partner', label: '외주처', type: 'select', width: '120px', placeholder: '선택', options: () => partners.filter(p => p.biz_type === '외주가공처').map(p => p.name) },
     { key: 'rework_yn', label: '재작업', type: 'check', width: '62px', align: 'center' },
     { key: 'storage_yn', label: '보관', type: 'check', width: '56px', align: 'center' },
+    { key: 'special_process', label: '특수공정', type: 'check', width: '68px', align: 'center' },
     { key: 'char_type', label: '특별특성', type: 'select', options: CHAR_TYPES, width: '96px', align: 'center' },
     { key: 'remark', label: '비고', width: '120px' },
   ],
@@ -480,7 +482,9 @@ export const pfmeaDocs = createDevDocPage({
       calc: (r) => (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1),
       tone: (r) => { const v = (Number(r.severity) || 1) * (Number(r.occurrence) || 1) * (Number(r.detection) || 1); return v >= 100 ? 'tone-danger' : v >= 60 ? 'tone-warning' : ''; },
     },
+    { key: 'ap', label: 'AP', type: 'select', options: AP_LEVELS, width: '74px', align: 'center' },
     { key: 'char_type', label: '특별특성', type: 'select', options: CHAR_TYPES, width: '92px', align: 'center' },
+    { key: 'past_defect', label: '과거불량 반영', type: 'textarea', width: '132px', placeholder: '과거 고객/공정 불량 이력 반영' },
     { key: 'action_plan', label: '개선대책', width: '124px' },
     { key: 'action_owner', label: '담당', width: '72px' },
     { key: 'after_sev', label: '개선S', type: 'number', width: '54px', align: 'center' },
@@ -578,6 +582,7 @@ export const controlPlans = createDevDocPage({
     { key: 'equipment', label: '설비/치공구', type: 'select', width: '124px', placeholder: '선택', options: () => equipments.map(e => ({ value: e.code, label: `${e.code} · ${e.name}` })) },
     { key: 'inspect_cycle', label: '검사주기', type: 'select', width: '112px', options: INSPECT_CYCLES },
     { key: 'inspect_qty', label: '검사수량', width: '78px', placeholder: '3ea / 전수' },
+    { key: 'record_method', label: '기록방법', type: 'select', width: '120px', placeholder: '선택', options: ['검사일지', 'SPC 관리도', '설비 데이터', '체크시트', '시스템 자동'] },
     { key: 'owner', label: '담당자', type: 'select', width: '96px', placeholder: '선택', options: () => users.map(u => u.name) },
     { key: 'reaction_plan', label: '이상 시 조치', type: 'select', width: '150px', placeholder: '선택', options: REACTION_PLANS },
     { key: 'fmea_ref', label: '근거 PFMEA', width: '124px', placeholder: '고장형태' },
@@ -687,7 +692,9 @@ export const workStandards = createDevDocPage({
     { key: 'step_name', label: '작업순서/단계', width: '132px', placeholder: '예: 1. 부품 장착' },
     { key: 'material_setup', label: '자재 장착 방법', type: 'textarea', width: '150px', placeholder: '지그에 정확히 안착 후 클램프 고정' },
     { key: 'equipment_op', label: '설비 조작 방법', type: 'textarea', width: '150px', placeholder: '조건 확인 후 양손 시작버튼' },
-    { key: 'condition', label: '작업조건', width: '130px', placeholder: '전류 110A, 전압 14V' },
+    { key: 'condition', label: '작업조건', width: '130px', placeholder: '주축 1200rpm, 이송 0.1' },
+    { key: 'torque', label: '체결토크', width: '96px', placeholder: '예: 25 ±2 N·m' },
+    { key: 'weld_condition', label: '용접조건', width: '120px', placeholder: '전류 110A·전압 14V·2.0s' },
     { key: 'tools_used', label: '사용 공구/치공구', width: '120px' },
     { key: 'quality_check', label: '품질 확인 방법', type: 'textarea', width: '160px', placeholder: '게이지 영점→측정 위치→기록' },
     { key: 'inspect_cycle', label: '검사주기', type: 'select', width: '110px', options: INSPECT_CYCLES },

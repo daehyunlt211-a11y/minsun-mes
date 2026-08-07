@@ -1721,3 +1721,57 @@ alter table dev_docs add column if not exists check_date timestamptz;      -- �
 -- 7. 4M 변경 — 개발문서 4종 개정 연계 확인용
 -- ---------------------------------------------------------------------
 alter table four_m_changes add column if not exists doc_review_note text;  -- 문서 개정 검토 의견
+
+-- =====================================================================
+-- v4 확장 — 4M↔생산관리 연계 · 4M/PPAP 강화 · 개발 4문서 항목 보강
+--   (전체 정의는 supabase/migration_v4_4m_production.sql 참고)
+-- =====================================================================
+-- 4M: 변경등급 · 생산연계 · 품질검증
+alter table four_m_changes add column if not exists grade text;
+alter table four_m_changes add column if not exists source text;
+alter table four_m_changes add column if not exists wo_no text;
+alter table four_m_changes add column if not exists process_id text;
+alter table four_m_changes add column if not exists lot_no text;
+alter table four_m_changes add column if not exists change_time timestamptz;
+alter table four_m_changes add column if not exists before_qty numeric;
+alter table four_m_changes add column if not exists before_lot text;
+alter table four_m_changes add column if not exists after_lot text;
+alter table four_m_changes add column if not exists risk_review text;
+alter table four_m_changes add column if not exists initial_sample text;
+alter table four_m_changes add column if not exists focus_inspect text;
+alter table four_m_changes add column if not exists customer_notify_yn boolean;
+alter table four_m_changes add column if not exists quarantine_yn boolean;
+
+-- 작업지시 4M 스냅샷 (변경 전/후 세그먼트 분리)
+create table if not exists wo_4m_snapshots (
+  id uuid primary key default uuid_generate_v4(),
+  wo_no text, process_id text, seg_no int default 1, lot_no text,
+  item_code text, item_name text, process text,
+  man_worker text, man_inspector text, man_shift text, man_qualified boolean,
+  machine_equipment text, machine_no text, mold_no text, jig_no text, inspect_equip text,
+  material_lot text, material_supplier text, material_spec text, material_qty numeric,
+  work_std_no text, work_std_rev text, setup_condition text, inspect_std text, program_no text,
+  start_at timestamptz, end_at timestamptz, seg_qty numeric,
+  fm_no text, approved boolean default true, note text,
+  created_at timestamptz default now()
+);
+create index if not exists idx_wo_4m_snap_wo on wo_4m_snapshots (wo_no);
+
+-- PPAP: 제출자료 확대 · 재승인
+alter table ppap_approvals add column if not exists chk_psw boolean;
+alter table ppap_approvals add column if not exists chk_msa boolean;
+alter table ppap_approvals add column if not exists chk_capability boolean;
+alter table ppap_approvals add column if not exists chk_material boolean;
+alter table ppap_approvals add column if not exists chk_appearance boolean;
+alter table ppap_approvals add column if not exists chk_sample boolean;
+alter table ppap_approvals add column if not exists car_project text;
+alter table ppap_approvals add column if not exists reapproval_yn boolean;
+
+-- 개발 4문서 항목 보강
+alter table pfd_items add column if not exists special_process boolean;
+alter table pfd_items add column if not exists work_content text;
+alter table pfmea_items add column if not exists ap text;
+alter table pfmea_items add column if not exists past_defect text;
+alter table control_plan_items add column if not exists record_method text;
+alter table work_std_steps add column if not exists torque text;
+alter table work_std_steps add column if not exists weld_condition text;
