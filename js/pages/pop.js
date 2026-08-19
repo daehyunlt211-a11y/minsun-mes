@@ -367,8 +367,7 @@ export async function popDetail(root, params = {}) {
         occur_date: todayStr(), process: proc?.process_name || '', item_code: code, item_name: itemNameOf(code),
         defect_qty: proc?.defect_qty || 0, worker: proc?.worker || getWorker(), status: '처리중',
       },
-      // 조치구분이 '재작업'이면 그 수량만큼 같은 공정의 재작업 단계 추가
-      onSaved: (ncr) => { if (ncr && ncr.action_type === '재작업') createReworkStep(proc, +ncr.defect_qty || 0); },
+      // 재작업 공정 추가는 종료 처리 시 재작업수량으로 이미 생성됨 (중복 방지)
     });
   }
 
@@ -793,14 +792,19 @@ export async function popDetail(root, params = {}) {
     body.className = 'form-grid';
     body.innerHTML = `
       <div class="field"><label>투입수량</label><input class="input mono" name="input_qty" value="${num(input)}" readonly></div>
-      <div class="field"><label>불량수량</label><input class="input" name="defect_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
-      <div class="field"><label>양품수량 (자동)</label><input class="input mono" name="good_qty" value="${num(input)}" readonly></div>
-      <div class="field"><label>비고</label><input class="input" name="remark" placeholder="특이사항"/></div>`;
-    // 불량 입력 시 양품 자동 = 투입 - 불량
-    body.querySelector('[name="defect_qty"]').addEventListener('input', (e) => {
-      let d = Number(e.target.value) || 0; if (d > input) { d = input; e.target.value = d; }
-      body.querySelector('[name="good_qty"]').value = num(input - d);
-    });
+      <div class="field"><label>폐기 <span class="muted">(생산수량 차감)</span></label><input class="input" name="scrap_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
+      <div class="field"><label>재작업 <span class="muted">(재작업 공정 추가)</span></label><input class="input" name="rework_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
+      <div class="field"><label>특채 <span class="muted">(사용 승인·이월)</span></label><input class="input" name="accept_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
+      <div class="field"><label>이월 양품 (자동)</label><input class="input mono" name="good_qty" value="${num(input)}" readonly></div>
+      <div class="field"><label>비고</label><input class="input" name="remark" placeholder="특이사항"/></div>
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} 폐기·재작업은 다음 공정 이월에서 제외되며, <b>폐기분만 생산수량에서 차감</b>됩니다. 특채(사용 승인)는 양품으로 이월됩니다. 원소재 불량은 재고에서만 차감하세요.</div>`;
+    const recalc = () => {
+      const g = (n) => Number(body.querySelector(`[name="${n}"]`).value) || 0;
+      let scrap = g('scrap_qty'), rework = g('rework_qty'), accept = g('accept_qty');
+      if (scrap + rework + accept > input) { toast('불량 합계가 투입수량을 초과합니다.', 'error'); }
+      body.querySelector('[name="good_qty"]').value = num(Math.max(0, input - scrap - rework));
+    };
+    ['scrap_qty', 'rework_qty', 'accept_qty'].forEach(k => body.querySelector(`[name="${k}"]`).addEventListener('input', recalc));
     openModal({
       title: `${p.process_name} 공정 종료 (투입 ${num(input)})`,
       body,
@@ -808,29 +812,32 @@ export async function popDetail(root, params = {}) {
       onMount: ({ footEl, close }) => {
         footEl.querySelector('[data-cancel]').onclick = close;
         footEl.querySelector('[data-ok]').onclick = async () => {
-          const defect = Math.min(input, Number(body.querySelector('[name="defect_qty"]').value) || 0);
-          const good = input - defect;
+          const g = (n) => Number(body.querySelector(`[name="${n}"]`).value) || 0;
+          let scrap = g('scrap_qty'), rework = g('rework_qty'), accept = g('accept_qty');
+          if (scrap + rework + accept > input) { toast('불량 합계가 투입수량을 초과합니다.', 'error'); return; }
+          const defect = scrap + rework + accept;
+          const good = Math.max(0, input - scrap - rework); // 폐기·재작업 제외, 특채는 이월
           const remark = body.querySelector('[name="remark"]').value.trim();
           const endAt = new Date();
           const startAt = p.start_at ? new Date(p.start_at) : endAt;
           const workTime = Math.max(0, Math.round((endAt - startAt) / 60000));
           try {
-            const upd = await db.update('work_order_processes', id, { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, work_time: workTime, remark });
+            const upd = await db.update('work_order_processes', id, { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, scrap_qty: scrap, rework_qty: rework, accept_qty: accept, work_time: workTime, remark });
             Object.assign(p, upd || { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, work_time: workTime, remark });
-            // 다음 본공정에 양품수량 cascade (불량 제외)
             const nm = nextMainStep(p);
             if (nm) {
-              const next = p.is_rework ? (+nm.input_qty || 0) + good : good; // 재작업이면 합산, 본공정이면 대체
+              const next = p.is_rework ? (+nm.input_qty || 0) + good : good;
               try { await db.update('work_order_processes', nm.id, { input_qty: next }); nm.input_qty = next; } catch { /* noop */ }
             }
-            await createResult(p, good, defect, workTime);
+            await createResult(p, good, defect, workTime, { scrap, rework, accept });
+            // 재작업분은 재작업 공정 추가 (NCR과 중복 생성 방지 — 여기서만 생성)
+            if (rework > 0) await createReworkStep(p, rework);
             await syncWoStatus();
             close();
             render();
-            // 불량 발생 시 해당 공정과 연계한 부적합 등록 진행 (재작업이면 재작업 공정 추가)
             if (defect > 0) {
-              toast(`[${p.process_name}] 불량 ${num(defect)}EA — 부적합 등록을 진행합니다.`, 'info');
-              openNcr({ ...p, defect_qty: defect });
+              toast(`[${p.process_name}] 폐기 ${num(scrap)}·재작업 ${num(rework)}·특채 ${num(accept)} — 부적합 등록을 진행합니다.`, 'info');
+              openNcr({ ...p, defect_qty: defect, scrap_qty: scrap, rework_qty: rework, accept_qty: accept });
             } else {
               toast(`[${p.process_name}] 종료 — 생산실적이 등록되었습니다.`);
             }
@@ -860,7 +867,7 @@ export async function popDetail(root, params = {}) {
   }
 
   // 생산실적 자동 등록
-  async function createResult(p, good, defect, workTime) {
+  async function createResult(p, good, defect, workTime, split = {}) {
     try {
       const all = await db.all('production_results', {});
       const result_no = nextDocNo('PR', all.map(x => x.result_no));
@@ -870,6 +877,7 @@ export async function popDetail(root, params = {}) {
         result_no, result_date: todayStr(), wo_no: wo.wo_no, lot_no: segLot(seg), item_code: code, item_name: itemNameOf(code),
         process: p.process_name, equipment: p.equipment || wo.equipment, machine_no: p.machine_no || wo.machine_no || '', worker: p.worker || getWorker(),
         prod_qty: (Number(good) || 0) + (Number(defect) || 0), good_qty: good, defect_qty: defect,
+        scrap_qty: split.scrap || 0, rework_qty: split.rework || 0, accept_qty: split.accept || 0,
         rework_yn: !!p.is_rework, work_time: workTime, status: '완료',
       });
       // 현재 4M 세그먼트 마감 (종료 시각·세그먼트 생산수량)

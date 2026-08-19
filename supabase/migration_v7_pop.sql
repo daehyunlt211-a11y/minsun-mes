@@ -20,3 +20,11 @@ create table if not exists pop_measurements (
   created_at timestamptz default now()
 );
 create index if not exists idx_pop_meas_wo on pop_measurements (wo_no);
+
+-- 불량 구분(재작업/폐기/특채) — 폐기분만 생산수량 차감 (생산 회의 4.7)
+alter table work_order_processes add column if not exists scrap_qty numeric default 0;
+alter table work_order_processes add column if not exists rework_qty numeric default 0;
+alter table work_order_processes add column if not exists accept_qty numeric default 0;
+alter table production_results add column if not exists scrap_qty numeric default 0;
+alter table production_results add column if not exists rework_qty numeric default 0;
+alter table production_results add column if not exists accept_qty numeric default 0;

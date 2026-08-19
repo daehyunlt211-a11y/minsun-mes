@@ -1815,3 +1815,9 @@ create table if not exists pop_measurements (
   measured_at timestamptz, created_at timestamptz default now()
 );
 create index if not exists idx_pop_meas_wo on pop_measurements (wo_no);
+alter table work_order_processes add column if not exists scrap_qty numeric default 0;
+alter table work_order_processes add column if not exists rework_qty numeric default 0;
+alter table work_order_processes add column if not exists accept_qty numeric default 0;
+alter table production_results add column if not exists scrap_qty numeric default 0;
+alter table production_results add column if not exists rework_qty numeric default 0;
+alter table production_results add column if not exists accept_qty numeric default 0;
