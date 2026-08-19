@@ -7,6 +7,7 @@ import { badge, toast, openModal, confirmDialog } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { openNonconformanceForm } from './nonconformanceForm.js';
 import { getActiveSpec } from './inspectionSpec.js';
+import { openDrawingViewer } from './drawing.js';
 
 // 측정 단계 (생산 회의 4.1) — 세팅품(초물) 필수, 중·종물 선택
 const MEAS_STAGES = ['세팅품', '중물', '종물'];
@@ -267,8 +268,9 @@ export async function popDetail(root, params = {}) {
     const progPct = procs.length ? Math.round(doneCnt / procs.length * 100) : 0;
 
     root.innerHTML = `
-      <div style="margin-bottom:16px">
+      <div style="margin-bottom:16px;display:flex;gap:8px">
         <button class="btn" id="pop-back">${icon('chevronLeft', 16)} 작업지시 목록</button>
+        <button class="btn" id="pop-drawing">${icon('fileText', 16)} 도면 보기</button>
       </div>
       <div class="pop-detail-head">
         <div>
@@ -289,6 +291,8 @@ export async function popDetail(root, params = {}) {
       </div>
       <div id="fm-panel" style="margin-top:16px"></div>`;
     bindBack(root);
+    const dwBtn = root.querySelector('#pop-drawing');
+    if (dwBtn) dwBtn.onclick = () => openDrawingViewer(wo.item_code, wo.item_name);
     renderProcs();
     renderBomPanel();
     renderFmPanel();

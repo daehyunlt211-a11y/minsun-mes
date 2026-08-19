@@ -1824,3 +1824,9 @@ alter table production_results add column if not exists accept_qty numeric defau
 alter table work_order_processes add column if not exists time_edited_by text;
 alter table work_order_processes add column if not exists time_edit_reason text;
 alter table work_order_processes add column if not exists time_edited_at timestamptz;
+
+-- =====================================================================
+-- v8 확장 — 도면관리 강화 (회의록 260814 개발 3.3~3.6)
+-- =====================================================================
+alter table drawings add column if not exists drawing_type text;
+alter table drawings add column if not exists file_url text;

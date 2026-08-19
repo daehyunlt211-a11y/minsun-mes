@@ -17,6 +17,7 @@ import { sqReport, lotTrace } from './pages/kpi.js';
 import { popList, popDetail } from './pages/pop.js';
 import { itemRouting } from './pages/routing.js';
 import { processMaster } from './pages/processMaster.js';
+import { drawingManager } from './pages/drawing.js';
 import { incomingInspection, processInspection, shippingInspection } from './pages/inspection.js';
 import { inspectionSpecs } from './pages/inspectionSpec.js';
 import { nonconformances, improvementActions } from './pages/nonconformance.js';
@@ -178,7 +179,7 @@ export const ROUTES = {
   '/base/bom': { render: bomManager, title: 'BOM관리', group: '기준정보관리' },
   '/base/processes': { render: processMaster, title: '표준공정관리', group: '기준정보관리' },
   '/base/item-processes': { render: itemRouting, title: '제품별표준공정(라우팅)', group: '기준정보관리' },
-  '/base/drawings': { render: base.drawings, title: '도면관리', group: '기준정보관리' },
+  '/base/drawings': { render: drawingManager, title: '도면관리', group: '기준정보관리' },
   '/base/materials': { render: base.stdMaterials, title: '표준재질관리', group: '기준정보관리' },
   '/base/warehouses': { render: base.warehouses, title: '창고관리', group: '기준정보관리' },
   '/base/holidays': { render: base.holidays, title: '휴일관리', group: '기준정보관리' },

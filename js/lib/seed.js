@@ -104,9 +104,11 @@ export const SEED = {
     { code: 'M-BOLT-M6', name: '볼트 M6x20', item_type: '부자재', customer: '', spec: 'M6x20 SUS', unit: 'EA', unit2: '', unit_weight: 0.005, material: 'SUS 304', drawing_no: '', routing_group: '', category: '체결', safety_stock: 2000, sale_price: 0, purchase_price: 80, subcon_price: 0, unit_price: 80, location: '자재창고1 C-01', partner: '동양스틸', use_yn: true },
   ],
   drawings: [
-    { drawing_no: 'DWG-SP2PE-C', item_code: 'P-SP2-PE', item_name: 'SP2 PE ASSY', rev: 'C', title: 'SP2 PE ASSY 조립도', writer: '최품질', reg_date: d(-60), use_yn: true },
-    { drawing_no: 'DWG-MCT01-A', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', rev: 'A', title: 'MCT 하우징 가공도', writer: '박생산', reg_date: d(-45), use_yn: true },
-    { drawing_no: 'DWG-PIPE01-B', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', rev: 'B', title: 'COOLING PIPE 벤딩 전개도', writer: '박생산', reg_date: d(-30), use_yn: true },
+    { drawing_no: 'DWG-SP2PE-C', item_code: 'P-SP2-PE', item_name: 'SP2 PE ASSY', drawing_type: '조립도', rev: 'C', title: 'SP2 PE ASSY 조립도', writer: '최품질', reg_date: d(-60), use_yn: true },
+    { drawing_no: 'DWG-MCT01-B', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', drawing_type: '단품도', rev: 'B', title: 'MCT 하우징 가공도', writer: '박생산', reg_date: d(-20), use_yn: true },
+    { drawing_no: 'DWG-MCT01-A', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', drawing_type: '단품도', rev: 'A', title: 'MCT 하우징 가공도(초판)', writer: '박생산', reg_date: d(-45), use_yn: false },
+    { drawing_no: 'DWG-MCT01F-A', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', drawing_type: '단조도', rev: 'A', title: 'MCT 하우징 단조도', writer: '박생산', reg_date: d(-45), use_yn: true },
+    { drawing_no: 'DWG-PIPE01-B', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', drawing_type: '단품도', rev: 'B', title: 'COOLING PIPE 벤딩 전개도', writer: '박생산', reg_date: d(-30), use_yn: true },
   ],
   holidays: [
     { holiday_date: `${new Date().getFullYear()}-01-01`, name: '신정', holiday_type: '법정공휴일' },
