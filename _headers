@@ -1,11 +1,18 @@
-# Cloudflare Pages / Netlify 공통 보안·캐시 헤더
+# Cloudflare Workers/Pages · Netlify 공통 보안·캐시 헤더
 /*
   X-Frame-Options: SAMEORIGIN
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-# JS/CSS 모듈은 항상 최신을 받도록 캐시 무효화 (no-build 배포라 파일명에 해시가 없음)
+# no-build 배포(파일명 해시 없음)라 항상 최신 모듈을 받도록 캐시를 저장하지 않음
+# no-cache는 "재검증 후 사용"이라 엣지가 옛 파일을 내주는 문제가 있어 no-store로 강화
 /js/*
-  Cache-Control: no-cache
+  Cache-Control: no-store, must-revalidate
 /assets/*
-  Cache-Control: no-cache
+  Cache-Control: no-store, must-revalidate
+
+# HTML 진입점도 항상 최신
+/
+  Cache-Control: no-store, must-revalidate
+/index.html
+  Cache-Control: no-store, must-revalidate
