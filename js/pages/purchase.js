@@ -26,6 +26,33 @@ function bindAmount(form, qtyKey, priceKey, amountKey) {
   q.addEventListener('input', calc); p.addEventListener('input', calc);
 }
 
+// 발주서 인쇄 (웹 인쇄 팝업) — 구매 회의 3.8
+function printPurchaseOrder(r) {
+  const esc = (v) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const w = window.open('', '_blank', 'width=880,height=1000');
+  if (!w) { alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 시도하세요.'); return; }
+  const row = (l, v) => `<tr><th>${l}</th><td>${esc(v)}</td></tr>`;
+  w.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>발주서 ${esc(r.po_no)}</title>
+    <style>body{font-family:'Malgun Gothic',sans-serif;padding:32px;color:#111}h1{text-align:center;letter-spacing:12px;border-bottom:3px solid #111;padding-bottom:12px}
+    table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border:1px solid #999;padding:9px 12px;font-size:14px;text-align:left}
+    th{background:#f2f2f2;width:130px;white-space:nowrap}.tot{text-align:right;font-size:16px;font-weight:700;margin-top:16px}
+    .sign{margin-top:40px;display:flex;justify-content:flex-end;gap:40px}.sign div{text-align:center}@media print{.noprint{display:none}}</style></head><body>
+    <h1>발 주 서</h1>
+    <table>
+      ${row('발주번호', r.po_no)}${row('발주일', (r.po_date || '').slice(0, 10))}
+      ${row('원소재업체', r.material_partner)}${row('절단업체', r.cutting_partner || '-')}
+      ${row('품목', `${r.item_name || ''} (${r.item_code || ''})`)}${row('규격', r.spec)}
+      ${row('발주수량', `${r.po_qty ?? ''} ${r.unit || ''}`)}${row('단중 / 총중량', `${r.unit_weight ?? '-'} KG · ${r.total_weight ?? '-'} KG`)}
+      ${row('단가 / 금액', `${(r.unit_price ?? 0).toLocaleString()} 원 · ${(r.amount ?? 0).toLocaleString()} 원`)}
+      ${row('납기일', (r.due_date || '').slice(0, 10) || '-')}${row('비고', r.remark || '')}
+    </table>
+    <div class="tot">합계 금액 : ${(r.amount ?? 0).toLocaleString()} 원</div>
+    <div class="sign"><div>담당<br><br>________</div><div>검토<br><br>________</div><div>승인<br><br>________</div></div>
+    <div class="noprint" style="margin-top:30px;text-align:center"><button onclick="window.print()">인쇄</button></div>
+    </body></html>`);
+  w.document.close();
+}
+
 // 3-1 자재발주 (원소재업체·절단업체·단중)
 export const purchaseOrders = createCrudPage({
   table: 'purchase_orders', title: '자재발주', subtitle: '원소재 발주를 등록합니다. 원소재업체·절단업체·단중(KG)을 함께 관리합니다.',
@@ -37,6 +64,7 @@ export const purchaseOrders = createCrudPage({
   docNoField: { key: 'po_no', prefix: 'PO' },
   wideForm: true,
   computed: bindPoComputed,
+  rowActions: [{ label: '발주서', icon: 'fileText', title: '발주서 인쇄(웹 인쇄/PDF)', onClick: (r) => printPurchaseOrder(r) }],
   stats: async (rows) => [
     { label: '총 발주건수', value: num(rows.length), unit: '건', icon: 'cart', tint: 'brand' },
     { label: '진행중', value: num(rows.filter(r => ['발주', '입고중'].includes(r.status)).length), unit: '건', icon: 'clock', tint: 'amber' },

@@ -1802,3 +1802,5 @@ create table if not exists warehouses (
 alter table production_plans add column if not exists prod_type text;
 alter table work_orders add column if not exists prod_type text;
 alter table work_orders add column if not exists in_warehouse text;
+
+alter table items add column if not exists spare_rate numeric default 0;

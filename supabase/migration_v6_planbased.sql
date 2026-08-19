@@ -19,3 +19,6 @@ create table if not exists warehouses (
 alter table production_plans add column if not exists prod_type text;  -- 수주생산/계획생산
 alter table work_orders add column if not exists prod_type text;
 alter table work_orders add column if not exists in_warehouse text;    -- 완료품 입고창고
+
+-- 품목 여유율(%) — 드릴 등 공정 손실 대비 발주 가산 (구매 회의 3.10)
+alter table items add column if not exists spare_rate numeric default 0;
