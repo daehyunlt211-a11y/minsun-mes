@@ -1789,3 +1789,16 @@ alter table shipping_orders add column if not exists ship_to text;
 alter table equipment_downtimes add column if not exists wo_no text;
 alter table equipment_downtimes add column if not exists process text;
 alter table equipment_downtimes add column if not exists note text;
+
+-- =====================================================================
+-- v6 확장 — 계획생산 전환 · 창고 신설 (회의록 260814 생산)
+--   (전체 정의는 supabase/migration_v6_planbased.sql 참고)
+-- =====================================================================
+create table if not exists warehouses (
+  id uuid primary key default uuid_generate_v4(),
+  code text, name text, wh_type text, location text, manager text,
+  use_yn boolean default true, remark text, created_at timestamptz default now()
+);
+alter table production_plans add column if not exists prod_type text;
+alter table work_orders add column if not exists prod_type text;
+alter table work_orders add column if not exists in_warehouse text;

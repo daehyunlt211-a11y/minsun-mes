@@ -57,7 +57,8 @@ export const productionPlans = createCrudPage({
   columns: [
     { key: 'plan_no', label: '계획번호', cls: 'cell-code', sortable: true },
     { key: 'plan_date', label: '계획일', type: 'date', sortable: true },
-    { key: 'order_no', label: '수주번호', cls: 'cell-code' },
+    { key: 'prod_type', label: '생산구분', align: 'center', render: (r) => badge(r.prod_type || '수주생산', r.prod_type === '계획생산' ? 'violet' : 'brand'), csv: (r) => (r.prod_type || '수주생산') },
+    { key: 'order_no', label: '수주번호', cls: 'cell-code', render: (r) => escapeHtml(r.order_no || (r.prod_type === '계획생산' ? '— (계획)' : '')) },
     { key: 'item_name', label: '품명', cls: 'cell-strong' },
     { key: 'plan_qty', label: '계획수량', type: 'num', sortable: true },
     { key: 'start_date', label: '시작일', type: 'date' },
@@ -67,8 +68,9 @@ export const productionPlans = createCrudPage({
   fields: [
     { key: 'plan_no', label: '계획번호 (자동생성)', placeholder: '비워두면 자동 채번' },
     { key: 'plan_date', label: '계획일', type: 'date', required: true, default: todayStr() },
-    { key: 'order_no', label: '수주 선택', ref: { table: 'sales_orders', value: 'order_no', label: (r) => `${r.order_no} · ${r.item_name} (${r.order_qty})`, fill: { item_code: 'item_code', item_name: 'item_name', plan_qty: 'order_qty' } }, placeholder: '수주 선택 (없으면 직접 입력)' },
-    { key: 'item_code', label: '품목코드(자동)', required: true, readonly: true },
+    { key: 'prod_type', label: '생산구분', type: 'select', options: ['수주생산', '계획생산'], default: '수주생산' },
+    { key: 'order_no', label: '수주 선택 (수주생산 시)', ref: { table: 'sales_orders', value: 'order_no', label: (r) => `${r.order_no} · ${r.item_name} (${r.order_qty})`, fill: { item_code: 'item_code', item_name: 'item_name', plan_qty: 'order_qty' } }, placeholder: '수주 선택 — 계획생산은 비움' },
+    { key: 'item_code', label: '품목 (계획생산은 직접 선택 · 반제품 포함)', required: true, ref: { table: 'items', value: 'code', label: (r) => `${r.code} · ${r.name} [${r.item_type || ''}]`, fill: { item_name: 'name' } }, placeholder: '품목 선택' },
     { key: 'item_name', label: '품명(자동)', required: true, readonly: true },
     { key: 'plan_qty', label: '계획수량', type: 'number', required: true, default: 0 },
     { key: 'start_date', label: '시작일', type: 'date' },
@@ -138,10 +140,12 @@ export const workOrders = createCrudPage({
   columns: [
     { key: 'wo_no', label: '작업지시번호', cls: 'cell-code', sortable: true },
     { key: 'lot_no', label: 'LOT No.', cls: 'cell-code', render: (r) => escapeHtml(r.lot_no || ('LOT-' + r.wo_no)) },
+    { key: 'prod_type', label: '생산구분', align: 'center', render: (r) => badge(r.prod_type || '수주생산', r.prod_type === '계획생산' ? 'violet' : 'brand'), csv: (r) => (r.prod_type || '수주생산') },
     { key: 'wo_date', label: '지시일', type: 'date', sortable: true },
     { key: 'item_code', label: '품목코드', cls: 'cell-code' },
     { key: 'item_name', label: '품명', cls: 'cell-strong' },
     { key: 'order_qty', label: '지시수량', type: 'num', sortable: true },
+    { key: 'in_warehouse', label: '입고창고' },
     { key: 'plan_no', label: '생산계획', cls: 'cell-code' },
     { key: 'start_date', label: '계획시작', type: 'date' },
     { key: 'due_date', label: '계획종료', type: 'date' },
@@ -153,10 +157,12 @@ export const workOrders = createCrudPage({
     { key: 'wo_no', label: '작업지시번호 (자동생성)', placeholder: '비워두면 자동 채번' },
     { key: 'lot_no', label: 'LOT No. (자동부여)', placeholder: '비워두면 LOT-작업지시번호로 부여' },
     { key: 'wo_date', label: '지시일', type: 'date', required: true, default: todayStr() },
-    { key: 'plan_no', label: '생산계획 선택', ref: { table: 'production_plans', value: 'plan_no', label: (r) => `${r.plan_no} · ${r.item_name} (${r.plan_qty})`, fill: { item_code: 'item_code', item_name: 'item_name', order_qty: 'plan_qty', start_date: 'start_date', due_date: 'end_date' } }, placeholder: '생산계획 선택 (없으면 직접 입력)' },
-    { key: 'item_code', label: '품목코드(자동)', required: true, readonly: true },
+    { key: 'prod_type', label: '생산구분', type: 'select', options: ['수주생산', '계획생산'], default: '수주생산' },
+    { key: 'plan_no', label: '생산계획 선택 (수주생산 시)', ref: { table: 'production_plans', value: 'plan_no', label: (r) => `${r.plan_no} · ${r.item_name} (${r.plan_qty})`, fill: { item_code: 'item_code', item_name: 'item_name', order_qty: 'plan_qty', start_date: 'start_date', due_date: 'end_date' } }, placeholder: '생산계획 선택 — 계획생산은 비움' },
+    { key: 'item_code', label: '품목 (계획생산은 직접 선택 · 반제품 포함)', required: true, ref: { table: 'items', value: 'code', label: (r) => `${r.code} · ${r.name} [${r.item_type || ''}]`, fill: { item_name: 'name' } }, placeholder: '품목 선택' },
     { key: 'item_name', label: '품명(자동)', required: true, readonly: true },
     { key: 'order_qty', label: '지시수량', type: 'number', required: true, default: 0 },
+    { key: 'in_warehouse', label: '입고창고 (완료품 입고 위치)', ref: { table: 'warehouses', value: 'name', label: (r) => `${r.code} · ${r.name} (${r.wh_type || ''})` }, placeholder: '반제품→중간공정창고 / 완제품→완제품창고' },
     { key: 'start_date', label: '계획 시작일', type: 'date' },
     { key: 'due_date', label: '계획 종료일', type: 'date' },
     { key: 'status', label: '상태', type: 'select', options: ['대기', '작업중', '완료', '중단'], default: '대기' },
@@ -398,7 +404,7 @@ async function openPlanModal(order, reload) {
           const all = await db.all('production_plans', {});
           const plan_no = nextDocNo('PP', all.map(x => x.plan_no));
           await db.insert('production_plans', {
-            plan_no, plan_date: g('plan_date'), order_no: order.order_no, item_code: order.item_code, item_name: order.item_name,
+            plan_no, plan_date: g('plan_date'), prod_type: '수주생산', order_no: order.order_no, item_code: order.item_code, item_name: order.item_name,
             plan_qty: Number(g('plan_qty')) || order.order_qty || 0, start_date: g('start_date') || null, end_date: g('end_date') || null,
             status: '계획',
           });
@@ -431,7 +437,7 @@ async function openWoModal(plan, reload) {
           const all = await db.all('work_orders', {});
           const wo_no = nextDocNo('WO', all.map(x => x.wo_no));
           await db.insert('work_orders', {
-            wo_no, lot_no: 'LOT-' + wo_no, wo_date: todayStr(), plan_no: plan.plan_no, item_code: plan.item_code, item_name: plan.item_name,
+            wo_no, lot_no: 'LOT-' + wo_no, wo_date: todayStr(), prod_type: plan.prod_type || '수주생산', plan_no: plan.plan_no, item_code: plan.item_code, item_name: plan.item_name,
             order_qty: Number(g('order_qty')) || plan.plan_qty || 0, start_date: plan.start_date || todayStr(),
             due_date: g('due_date') || null, status: '대기',
           });

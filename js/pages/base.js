@@ -321,6 +321,33 @@ export const stdMaterials = createCrudPage({
   ],
 });
 
+// 1-11b 창고관리 (계획생산 전환 — 자재/외주/중간공정(반제품)/완제품 창고)
+export const warehouses = createCrudPage({
+  table: 'warehouses', title: '창고관리', subtitle: '자재·외주·중간공정(반제품)·완제품 창고를 관리합니다. 입고 위치 이동과 반제품 재고 구분에 사용됩니다.',
+  searchFields: ['code', 'name', 'wh_type', 'location'], searchPlaceholder: '창고코드·명·유형 검색',
+  defaultSort: { key: 'code', dir: 'asc' },
+  filters: [{ key: 'wh_type', label: '창고유형', options: ['자재창고', '외주창고', '중간공정창고', '완제품창고'] }],
+  statusChips: { key: 'wh_type', options: ['자재창고', '외주창고', '중간공정창고', '완제품창고'] },
+  columns: [
+    { key: 'code', label: '창고코드', cls: 'cell-code', sortable: true },
+    { key: 'name', label: '창고명', cls: 'cell-strong', sortable: true },
+    { key: 'wh_type', label: '유형', type: 'badge' },
+    { key: 'location', label: '위치' },
+    { key: 'manager', label: '관리자' },
+    { key: 'use_yn', label: '사용', type: 'yesno', align: 'center' },
+    { key: 'remark', label: '비고' },
+  ],
+  fields: [
+    { key: 'code', label: '창고코드', required: true, placeholder: '예: WH-RM' },
+    { key: 'name', label: '창고명', required: true, placeholder: '예: 자재창고' },
+    { key: 'wh_type', label: '창고유형', type: 'select', options: ['자재창고', '외주창고', '중간공정창고', '완제품창고'], default: '자재창고' },
+    { key: 'location', label: '위치', placeholder: '예: 1공장 A동' },
+    { key: 'manager', label: '관리자', ref: { table: 'users', value: 'name', label: (r) => `${r.name} (${r.department || ''})` }, placeholder: '관리자 선택' },
+    { key: 'use_yn', label: '사용여부', type: 'switch', default: true },
+    { key: 'remark', label: '비고', type: 'textarea' },
+  ],
+});
+
 // 1-12 휴일관리
 export const holidays = createCrudPage({
   table: 'holidays', title: '휴일관리', subtitle: '법정공휴일·회사휴일을 관리합니다. 생산계획 일정 산정에 활용됩니다.',

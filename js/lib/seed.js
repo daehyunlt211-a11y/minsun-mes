@@ -79,6 +79,12 @@ export const SEED = {
     { code: 'S001', name: '한국열처리', biz_type: '외주가공처', biz_no: '789-01-23456', ceo: '한열처', manager: '임외주', phone: '041-600-6000', email: 'heat@hk.com', address: '충남 천안시', use_yn: true },
     { code: 'S002', name: '아노다이징텍', biz_type: '외주가공처', biz_no: '890-12-34567', ceo: '아노표', manager: '표면처', phone: '032-700-7000', email: 'ano@at.com', address: '인천시 서구', use_yn: true },
   ],
+  warehouses: [
+    { code: 'WH-RM', name: '자재창고', wh_type: '자재창고', location: '1공장 A동', manager: '정자재', use_yn: true },
+    { code: 'WH-SUB', name: '외주창고', wh_type: '외주창고', location: '1공장 B동', manager: '정자재', use_yn: true },
+    { code: 'WH-WIP', name: '중간공정창고(반제품)', wh_type: '중간공정창고', location: '2공장 라인옆', manager: '박생산', use_yn: true },
+    { code: 'WH-FG', name: '완제품창고', wh_type: '완제품창고', location: '출하동', manager: '최품질', use_yn: true },
+  ],
   std_materials: [
     { code: 'AL6061', name: 'AL 6061-T6', category: '알루미늄', density: 2.7, spec: 'KS D 6759', use_yn: true },
     { code: 'AL6063', name: 'AL 6063-T5', category: '알루미늄', density: 2.69, spec: 'KS D 6759', use_yn: true },
@@ -207,14 +213,16 @@ export const SEED = {
     { sci_no: 'SCI-2606-001', sci_date: d(-10), sco_no: 'SCO-2606-001', partner: '한국열처리', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', process: '외주 열처리', inbound_qty: 300, good_qty: 298, defect_qty: 2, lot_no: 'LOT-WO-2606-001', inspect_result: '합격', status: '입고완료' },
   ],
   production_plans: [
-    { plan_no: 'PP-2607-001', plan_date: d(-4), order_no: 'SO-2607-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', plan_qty: 500, start_date: d(-3), end_date: d(7), line: 'MCT라인', status: '진행' },
-    { plan_no: 'PP-2607-002', plan_date: d(-2), order_no: 'SO-2607-002', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', plan_qty: 800, start_date: d(1), end_date: d(12), line: 'PIPE성형라인', status: '계획' },
+    { plan_no: 'PP-2607-001', plan_date: d(-4), prod_type: '수주생산', order_no: 'SO-2607-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', plan_qty: 500, start_date: d(-3), end_date: d(7), line: 'MCT라인', status: '진행' },
+    { plan_no: 'PP-2607-002', plan_date: d(-2), prod_type: '수주생산', order_no: 'SO-2607-002', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', plan_qty: 800, start_date: d(1), end_date: d(12), line: 'PIPE성형라인', status: '계획' },
+    { plan_no: 'PP-2607-003', plan_date: d(-1), prod_type: '계획생산', order_no: '', item_code: 'S-MCT-01', item_name: 'MCT 하우징 반제품', plan_qty: 400, start_date: d(0), end_date: d(6), line: 'MCT라인', status: '계획' },
     { plan_no: 'PP-2606-001', plan_date: d(-18), order_no: 'SO-2606-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', plan_qty: 300, start_date: d(-18), end_date: d(-3), line: 'MCT라인', status: '완료' },
     { plan_no: 'PP-2606-002', plan_date: d(-13), order_no: 'SO-2606-002', item_code: 'P-CNC-01', item_name: 'CNC 브라켓 가공품', plan_qty: 200, start_date: d(-13), end_date: d(-2), line: 'CNC라인', status: '완료' },
   ],
   work_orders: [
-    { wo_no: 'WO-2607-001', lot_no: 'LOT-WO-2607-001', wo_date: d(-3), plan_no: 'PP-2607-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', order_qty: 500, process: 'MCT가공', equipment: 'MCT-01', machine_no: '1호기', worker: '박생산', line: 'MCT라인', start_date: d(-3), due_date: d(7), status: '작업중' },
-    { wo_no: 'WO-2607-002', lot_no: 'LOT-WO-2607-002', wo_date: d(-2), plan_no: 'PP-2607-002', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', order_qty: 800, process: 'PIPE성형', equipment: 'PIPE-01', machine_no: '1호기', worker: '이현장', line: 'PIPE성형라인', start_date: d(1), due_date: d(12), status: '대기' },
+    { wo_no: 'WO-2607-001', lot_no: 'LOT-WO-2607-001', wo_date: d(-3), prod_type: '수주생산', plan_no: 'PP-2607-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', order_qty: 500, in_warehouse: '완제품창고', process: 'MCT가공', equipment: 'MCT-01', machine_no: '1호기', worker: '박생산', line: 'MCT라인', start_date: d(-3), due_date: d(7), status: '작업중' },
+    { wo_no: 'WO-2607-002', lot_no: 'LOT-WO-2607-002', wo_date: d(-2), prod_type: '수주생산', plan_no: 'PP-2607-002', item_code: 'P-PIPE-01', item_name: 'COOLING PIPE', order_qty: 800, in_warehouse: '완제품창고', process: 'PIPE성형', equipment: 'PIPE-01', machine_no: '1호기', worker: '이현장', line: 'PIPE성형라인', start_date: d(1), due_date: d(12), status: '대기' },
+    { wo_no: 'WO-2607-003', lot_no: 'LOT-WO-2607-003', wo_date: d(-1), prod_type: '계획생산', plan_no: 'PP-2607-003', item_code: 'S-MCT-01', item_name: 'MCT 하우징 반제품', order_qty: 400, in_warehouse: '중간공정창고(반제품)', start_date: d(0), due_date: d(6), status: '대기' },
     { wo_no: 'WO-2606-001', lot_no: 'LOT-WO-2606-001', wo_date: d(-18), plan_no: 'PP-2606-001', item_code: 'P-MCT-01', item_name: 'MCT 하우징 가공품', order_qty: 300, process: 'MCT가공', equipment: 'MCT-01', machine_no: '1호기', worker: '박생산', line: 'MCT라인', start_date: d(-18), due_date: d(-3), status: '완료' },
     { wo_no: 'WO-2606-002', lot_no: 'LOT-WO-2606-002', wo_date: d(-13), plan_no: 'PP-2606-002', item_code: 'P-CNC-01', item_name: 'CNC 브라켓 가공품', order_qty: 200, process: 'CNC가공', equipment: 'CNC-01', machine_no: '1호기', worker: '박생산', line: 'CNC라인', start_date: d(-13), due_date: d(-2), status: '완료' },
   ],
