@@ -1804,3 +1804,14 @@ alter table work_orders add column if not exists prod_type text;
 alter table work_orders add column if not exists in_warehouse text;
 
 alter table items add column if not exists spare_rate numeric default 0;
+
+-- =====================================================================
+-- v7 확장 — POP 세팅품/초·중·종물 측정 인터록 (회의록 260814 생산 4.1·4.2)
+-- =====================================================================
+create table if not exists pop_measurements (
+  id uuid primary key default uuid_generate_v4(),
+  wo_no text, process_id text, item_code text, process text,
+  stage text, result text, detail text, worker text,
+  measured_at timestamptz, created_at timestamptz default now()
+);
+create index if not exists idx_pop_meas_wo on pop_measurements (wo_no);

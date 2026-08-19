@@ -6,6 +6,24 @@ import { num, escapeHtml, todayStr, nextDocNo } from '../lib/format.js';
 import { badge, toast, openModal, confirmDialog } from '../ui/components.js';
 import { icon } from '../ui/icons.js';
 import { openNonconformanceForm } from './nonconformanceForm.js';
+import { getActiveSpec } from './inspectionSpec.js';
+
+// 측정 단계 (생산 회의 4.1) — 세팅품(초물) 필수, 중·종물 선택
+const MEAS_STAGES = ['세팅품', '중물', '종물'];
+// 정량/정성 판정 — 규격(LSL/USL 또는 기준값±공차) 대비 측정값 OK/NG
+function judgePoint(it, val) {
+  if (it.eval_method === '정성적' || (it.lsl == null && it.usl == null && !it.tolerance)) return null; // 육안=수동판정
+  const v = Number(val);
+  if (val === '' || val == null || Number.isNaN(v)) return null;
+  let lo = it.lsl != null ? Number(it.lsl) : null, hi = it.usl != null ? Number(it.usl) : null;
+  if (lo == null && hi == null && it.spec_value != null && it.tolerance != null) {
+    const c = Number(it.spec_value), t = Number(it.tolerance);
+    if (!Number.isNaN(c) && !Number.isNaN(t)) { lo = c - t; hi = c + t; }
+  }
+  if (lo != null && v < lo) return 'NG';
+  if (hi != null && v > hi) return 'NG';
+  return 'OK';
+}
 
 // 마지막 선택 작업자(시작 모달 기본값) 기억
 const WORKER_KEY = 'mes_pop_worker';
@@ -172,6 +190,20 @@ export async function popDetail(root, params = {}) {
   // 이상 발생(MRB) 사유 코드
   let downtimeCodes = [];
   try { downtimeCodes = (await db.all('downtime_codes', { sort: 'code' })).filter(c => c.use_yn !== false); } catch { downtimeCodes = []; }
+
+  // POP 측정(세팅품/초·중·종물) 인터록 — 검사규격(공정) 재사용
+  let popMeas = [];
+  try { popMeas = await db.all('pop_measurements', { filters: { wo_no: wo.wo_no } }); } catch { popMeas = []; }
+  const specCache = {};
+  async function specFor(p) {
+    const code = p.item_code || wo.item_code; const key = code + '|' + (p.process_name || '');
+    if (!(key in specCache)) { try { specCache[key] = await getActiveSpec(code, '공정검사', p.process_name); } catch { specCache[key] = null; } }
+    return specCache[key];
+  }
+  const measRow = (p, stage) => popMeas.filter(m => String(m.process_id) === String(p.id) && m.stage === stage)
+    .sort((a, b) => String(b.measured_at || '').localeCompare(String(a.measured_at || '')))[0];
+  const setupOk = (p) => { const m = measRow(p, '세팅품'); return !!(m && m.result === 'OK'); };
+  async function reloadMeas() { try { popMeas = await db.all('pop_measurements', { filters: { wo_no: wo.wo_no } }); } catch { /* noop */ } }
   // 4M 스냅샷 · 생산 중 4M 변경 (v4 테이블 미생성 시 무시)
   let snaps = [], fmChanges = [], devDocsAll = [];
   try { snaps = await db.all('wo_4m_snapshots', { filters: { wo_no: wo.wo_no }, sort: 'seg_no' }); } catch { snaps = []; }
@@ -371,6 +403,91 @@ export async function popDetail(root, params = {}) {
     slot.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => openToolUse(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => openFourMChange(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-issue]').forEach(b => b.onclick = () => openIssue(b.closest('[data-id]').dataset.id));
+    slot.querySelectorAll('[data-measure]').forEach(b => b.onclick = () => openMeasure(b.closest('[data-id]').dataset.id, b.dataset.measure));
+  }
+
+  // POP 측정(세팅품/중·종물) — 검사규격 대비 자동판정, 세팅품 OK 시 인터록 해제(진행 전환)
+  async function openMeasure(id, stage) {
+    const p = procs.find(x => String(x.id) === String(id));
+    const spec = await specFor(p);
+    const items = (spec?.items || []).filter(it => it.eval_method !== '정성적' || it.spec_value); // 측정 포인트
+    const isSetup = stage === '세팅품';
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    const stageSel = isSetup ? `<input type="hidden" name="stage" value="세팅품">`
+      : `<div class="field col-2"><label>측정 단계</label><select class="select" name="stage">${['중물', '종물'].map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>`;
+    if (!items.length) {
+      body.innerHTML = `${stageSel}<div class="field col-2"><div class="muted" style="padding:10px 12px;background:var(--surface-2);border-radius:10px">이 품목·공정의 <b>승인된 공정검사 규격</b>이 없습니다. 검사규격관리에 등록하면 자동 판정됩니다.<br>규격 없이 ${isSetup ? '세팅 완료' : '측정 기록'} 처리하려면 아래 [판정 없이 진행]을 누르세요.</div></div>`;
+    } else {
+      body.innerHTML = `${stageSel}<div class="field col-2"><div class="table-wrap"><table class="grid"><thead><tr>
+        <th>측정항목</th><th class="center">규격</th><th class="center" style="width:130px">측정값</th><th class="center" style="width:80px">판정</th></tr></thead>
+        <tbody>${items.map((it, i) => {
+        const rng = (it.lsl != null || it.usl != null) ? `${it.lsl ?? ''}~${it.usl ?? ''}` : `${it.spec_value ?? ''}${it.tolerance ? ' ±' + it.tolerance : ''}`;
+        const qual = it.eval_method === '정성적';
+        return `<tr><td class="cell-strong">${escapeHtml(it.inspect_item || '')} ${it.char_type && it.char_type !== '일반' ? `<span class="badge badge--warning">${escapeHtml(it.char_type)}</span>` : ''}</td>
+          <td class="center">${escapeHtml(rng)} ${escapeHtml(it.unit || '')}</td>
+          <td class="center">${qual
+          ? `<select class="select" data-mi="${i}"><option value="">-</option><option value="OK">OK</option><option value="NG">NG</option></select>`
+          : `<input class="input" type="number" step="any" data-mi="${i}" style="text-align:center">`}</td>
+          <td class="center" data-mj="${i}"><span class="muted">-</span></td></tr>`;
+      }).join('')}</tbody></table></div></div>
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} ${isSetup ? '세팅품(초물)은 <b>전 항목 OK</b>여야 작업이 진행 상태로 전환됩니다.' : '중·종물은 참고 측정으로 기록됩니다. 최종 입력값이 최종 측정값입니다.'}</div>`;
+    }
+    const recompute = () => {
+      let allOk = items.length > 0;
+      items.forEach((it, i) => {
+        const el = body.querySelector(`[data-mi="${i}"]`); const cell = body.querySelector(`[data-mj="${i}"]`);
+        const val = el ? el.value : '';
+        let j = it.eval_method === '정성적' ? (val || null) : judgePoint(it, val);
+        if (j === 'OK') cell.innerHTML = '<span class="badge badge--success">OK</span>';
+        else if (j === 'NG') { cell.innerHTML = '<span class="badge badge--danger">NG</span>'; allOk = false; }
+        else { cell.innerHTML = '<span class="muted">-</span>'; allOk = false; }
+      });
+      return allOk;
+    };
+    body.querySelectorAll('[data-mi]').forEach(el => el.addEventListener('input', recompute));
+    body.querySelectorAll('select[data-mi]').forEach(el => el.addEventListener('change', recompute));
+    openModal({
+      title: `${p.process_name} · ${isSetup ? '세팅품(초물) 측정' : '측정'}`, body, wide: true,
+      footer: `<button class="btn" data-cancel>취소</button>${items.length ? '' : `<button class="btn" data-skip>판정 없이 진행</button>`}<button class="btn btn--primary" data-ok>${icon('check', 16)} 측정 저장</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        const finalize = async (result, detail) => {
+          const st = body.querySelector('[name="stage"]').value;
+          try {
+            await db.insert('pop_measurements', {
+              wo_no: wo.wo_no, process_id: String(p.id), item_code: p.item_code || wo.item_code, process: p.process_name,
+              stage: st, result, detail: JSON.stringify(detail || []), worker: p.worker || getWorker(), measured_at: new Date().toISOString(),
+            });
+            await reloadMeas();
+            // 세팅품 OK → 인터록 해제(진행 전환)
+            if (st === '세팅품' && result === 'OK' && p.status === '세팅') {
+              const upd = await db.update('work_order_processes', String(p.id), { status: '진행' });
+              Object.assign(p, upd || { status: '진행' });
+              await syncWoStatus();
+            }
+            close(); render();
+            if (st === '세팅품' && result !== 'OK') toast('세팅품 규격 미달(NG) — 조건 조정 후 재측정하세요.', 'error');
+            else if (st === '세팅품') toast('세팅품 OK — 작업이 진행 상태로 전환되었습니다.');
+            else toast(`${st} 측정이 기록되었습니다.`);
+          } catch (e) { toast(e.message || '측정 저장 실패', 'error'); }
+        };
+        const skip = footEl.querySelector('[data-skip]'); if (skip) skip.onclick = () => finalize('OK', []);
+        footEl.querySelector('[data-ok]').onclick = () => {
+          if (!items.length) { finalize('OK', []); return; }
+          const detail = []; let allOk = true; let anyEmpty = false;
+          items.forEach((it, i) => {
+            const el = body.querySelector(`[data-mi="${i}"]`); const val = el ? el.value : '';
+            const j = it.eval_method === '정성적' ? (val || null) : judgePoint(it, val);
+            if (val === '' || j == null) anyEmpty = true;
+            if (j !== 'OK') allOk = false;
+            detail.push({ item: it.inspect_item, value: val, judge: j });
+          });
+          if (isSetup && anyEmpty) { toast('세팅품은 전 항목을 측정해야 합니다.', 'error'); return; }
+          finalize(allOk ? 'OK' : 'NG', detail);
+        };
+      },
+    });
   }
 
   // 이상 발생(MRB) — 일시정지와 별도로 이상 사유를 기록 (비가동/품질문제)
@@ -571,13 +688,19 @@ export async function popDetail(root, params = {}) {
   function stepButtons(p) {
     const st = p.status || '대기';
     if (st === '완료') return `<span class="badge badge--success" style="height:36px;padding:0 16px;font-size:14px">완료</span>`;
+    if (st === '세팅') {
+      // 인터록: 세팅품(초물) 측정 OK 전까지 진행 불가
+      return `<span class="badge badge--warning" style="height:36px;padding:0 12px;font-size:12.5px">세팅품 측정 대기</span>
+        <button class="btn btn--pop btn--start" data-measure="세팅품">${icon('target', 18)} 세팅품 측정</button>`;
+    }
     if (st === '진행') {
       const pend = pending4mOf(p);
       if (pend) return `<span class="badge badge--warning" style="height:36px;padding:0 14px;font-size:13px" title="4M 변경 승인 후 작업을 재개할 수 있습니다">${icon('clock', 16)} 4M 승인대기 · ${escapeHtml(pend.fm_no)}</span>`;
       const toolBtn = toolsForProcess(p.process_name).length ? `<button class="btn btn--pop" data-tool style="background:var(--surface);color:var(--text)">${icon('tool', 16)} 공구투입</button>` : '';
+      const measBtn = `<button class="btn btn--pop" data-measure="중물" style="background:var(--surface);color:var(--text)">${icon('target', 16)} 중·종물 측정</button>`;
       const fmBtn = `<button class="btn btn--pop" data-fm style="background:var(--surface);color:var(--text)">${icon('refresh', 16)} 4M 변경</button>`;
       const issueBtn = `<button class="btn btn--pop" data-issue style="background:var(--warning-bg);color:var(--warning)">${icon('alert', 16)} 이상 발생</button>`;
-      return `${toolBtn}${fmBtn}${issueBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
+      return `${toolBtn}${measBtn}${fmBtn}${issueBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
     }
     const blocked = stepBlockReason(p);
     if (blocked) return `<button class="btn btn--pop" disabled title="${blocked} 시작 가능">${icon('clock', 18)} 대기</button>`;
@@ -630,7 +753,10 @@ export async function popDetail(root, params = {}) {
         <select class="select" name="equipment"><option value="">선택</option>
           ${equipOptions.map(e => `<option value="${escapeHtml(e.name)}" ${e.name === p.equipment ? 'selected' : ''}>${escapeHtml(e.code)} · ${escapeHtml(e.name)}</option>`).join('')}
         </select>${(p.process_code && equipOptions.length === 0) ? `<div class="field__err" style="color:var(--warning)">이 공정에 등록된 설비가 없습니다. 표준공정관리에서 설비를 지정하세요.</div>` : ''}</div>
-      ${inputsHtml}`;
+      ${inputsHtml}
+      <div class="field col-2"><label>작업 전 대표 불량 확인 (4매) <span class="req">*</span></label>
+        <div class="flex" style="gap:8px;margin-bottom:8px">${[1, 2, 3, 4].map(n => `<div style="flex:1;aspect-ratio:1;background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-3);font-size:12px">${icon('alert', 20)}<span>대표불량 ${n}</span></div>`).join('')}</div>
+        <label class="flex" style="gap:8px;padding:10px 12px;background:var(--warning-bg);border-radius:9px;cursor:pointer"><input type="checkbox" class="checkbox" name="defect_ack"> <b>위 대표 불량 유형을 확인했으며 동일 불량이 발생하지 않도록 작업하겠습니다.</b></label></div>`;
     openModal({
       title: `${p.process_name} 작업 시작`, body,
       footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('activity', 16)} 작업 시작</button>`,
@@ -641,17 +767,19 @@ export async function popDetail(root, params = {}) {
           const equipment = body.querySelector('[name="equipment"]').value;
           if (!worker) { toast('작업자를 선택하세요.', 'error'); return; }
           if (!equipment) { toast('설비호기를 선택하세요.', 'error'); return; }
+          if (!body.querySelector('[name="defect_ack"]').checked) { toast('작업 전 대표 불량 확인에 체크하세요.', 'error'); return; }
           const startAt = new Date().toISOString();
           try {
-            const upd = await db.update('work_order_processes', id, { status: '진행', start_at: startAt, worker, equipment });
-            Object.assign(p, upd || { status: '진행', start_at: startAt, worker, equipment });
+            // 세팅품 측정 OK 전까지 '세팅' 상태 (인터록) — 측정 후 '진행' 전환
+            const upd = await db.update('work_order_processes', id, { status: '세팅', start_at: startAt, worker, equipment });
+            Object.assign(p, upd || { status: '세팅', start_at: startAt, worker, equipment });
             setWorker(worker);
-            // 작업 시작 시점의 4M 조건을 스냅샷으로 보존 (최초 세그먼트)
             if (!snaps.some(s => String(s.process_id) === String(p.id))) await createSnapshot(p, 1, null);
             await syncWoStatus();
             close();
-            toast(`[${p.process_name}] 작업을 시작했습니다. (4M 스냅샷 저장)`);
+            toast(`[${p.process_name}] 세팅 시작 — 세팅품(초물) 측정 OK 후 진행됩니다.`, 'info');
             render();
+            openMeasure(id, '세팅품');
           } catch (e) { toast(e.message || '시작 실패', 'error'); }
         };
       },
@@ -753,7 +881,7 @@ export async function popDetail(root, params = {}) {
   // 작업지시 상태 자동 동기화
   async function syncWoStatus() {
     const allDone = procs.length && procs.every(p => p.status === '완료');
-    const anyProg = procs.some(p => p.status === '진행' || p.status === '완료');
+    const anyProg = procs.some(p => p.status === '진행' || p.status === '세팅' || p.status === '완료');
     const next = allDone ? '완료' : anyProg ? '작업중' : '대기';
     if (next !== wo.status) {
       try { await db.update('work_orders', wo.id, { status: next }); wo.status = next; } catch { /* noop */ }
