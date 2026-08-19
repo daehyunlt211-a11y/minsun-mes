@@ -241,6 +241,87 @@ export const productionResults = createCrudPage({
   ],
 });
 
+// 3-3c 작업시간 수정(관리자) — POP 밖에서만 시작/종료 시각 수정, 수정자·사유 기록 (생산 회의 4.6)
+export async function timeAdjust(root) {
+  const state = { search: '', wos: [], procs: [], users: [] };
+  root.innerHTML = `
+    <div class="page-head">
+      <div class="page-head__text"><h1>작업시간 수정 (관리자)</h1><p>현장 POP에서는 시작·종료 시각을 수정할 수 없습니다. 여기서만 수정하며 <b>수정자·수정 사유</b>가 기록됩니다.</p></div>
+      <div class="page-head__actions"><button class="btn" id="ta-refresh">${icon('refresh', 16)} 새로고침</button></div>
+    </div>
+    <div class="card">
+      <div class="toolbar"><div class="search-box grow">${icon('search', 16)}<input id="ta-search" placeholder="작업지시·품목·공정·작업자 검색" autocomplete="off"/></div></div>
+      <div class="table-wrap"><div id="ta-table"><div class="spinner"></div></div></div>
+    </div>`;
+  root.querySelector('#ta-refresh').onclick = load;
+  root.querySelector('#ta-search').addEventListener('input', (e) => { state.search = e.target.value.trim().toLowerCase(); renderTable(); });
+
+  const fmtDT = (v) => v ? new Date(v).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+  const toLocalInput = (v) => { if (!v) return ''; const d = new Date(v); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+  async function load() {
+    try {
+      [state.procs, state.wos, state.users] = await Promise.all([
+        db.all('work_order_processes', {}).catch(() => []),
+        db.all('work_orders', {}).catch(() => []),
+        db.all('users', { sort: 'name' }).catch(() => []),
+      ]);
+      state.procs = state.procs.filter(p => p.start_at).sort((a, b) => String(b.start_at).localeCompare(String(a.start_at)));
+      renderTable();
+    } catch (e) { root.querySelector('#ta-table').innerHTML = `<div class="empty">${icon('alert', 42)}<h4>불러오기 실패</h4><p>${escapeHtml(e.message || e)}</p></div>`; }
+  }
+  function renderTable() {
+    const q = state.search;
+    const list = state.procs.filter(p => !q || [p.wo_no, p.process_name, p.worker, p.equipment].some(v => String(v ?? '').toLowerCase().includes(q)));
+    const slot = root.querySelector('#ta-table');
+    if (!list.length) { slot.innerHTML = `<div class="empty" style="padding:40px">${icon('inbox', 42)}<h4>시작된 공정이 없습니다</h4></div>`; return; }
+    slot.innerHTML = `<table class="grid"><thead><tr>
+      <th>작업지시</th><th>공정</th><th>작업자</th><th>설비</th><th class="center">시작</th><th class="center">종료</th><th class="center">작업(분)</th><th>최근 수정</th><th class="center" style="width:80px">관리</th>
+    </tr></thead><tbody>${list.map(p => `<tr>
+      <td class="cell-code">${escapeHtml(p.wo_no || '')}</td><td class="cell-strong">${escapeHtml(p.process_name || '')}</td>
+      <td>${escapeHtml(p.worker || '')}</td><td>${escapeHtml(p.equipment || '')}</td>
+      <td class="center mono">${fmtDT(p.start_at)}</td><td class="center mono">${fmtDT(p.end_at)}</td>
+      <td class="center mono">${num(p.work_time || 0)}</td>
+      <td class="muted" style="font-size:12px">${p.time_edited_by ? `${escapeHtml(p.time_edited_by)} · ${escapeHtml(p.time_edit_reason || '')}` : '-'}</td>
+      <td class="center"><button class="btn btn--sm" data-edit="${p.id}">${icon('edit', 14)} 시각수정</button></td>
+    </tr>`).join('')}</tbody></table>`;
+    slot.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openEdit(list.find(x => x.id === b.dataset.edit)));
+  }
+  function openEdit(p) {
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    body.innerHTML = `
+      <div class="field col-2"><label>공정</label><input class="input" value="${escapeHtml(p.wo_no)} · ${escapeHtml(p.process_name || '')} · ${escapeHtml(p.worker || '')}" readonly></div>
+      <div class="field"><label>시작 시각</label><input class="input" type="datetime-local" name="start_at" value="${toLocalInput(p.start_at)}"></div>
+      <div class="field"><label>종료 시각</label><input class="input" type="datetime-local" name="end_at" value="${toLocalInput(p.end_at)}"></div>
+      <div class="field"><label>수정자 <span class="req">*</span></label><select class="select" name="editor"><option value="">선택</option>${state.users.map(u => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)} (${escapeHtml(u.department || '')})</option>`).join('')}</select></div>
+      <div class="field"><label>수정 사유 <span class="req">*</span></label><input class="input" name="reason" placeholder="예: 종료 누락 보정"></div>`;
+    openModal({
+      title: '작업시간 수정', body,
+      footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 저장</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        footEl.querySelector('[data-ok]').onclick = async () => {
+          const g = (n) => body.querySelector(`[name="${n}"]`).value;
+          if (!g('editor')) { toast('수정자를 선택하세요.', 'error'); return; }
+          if (!g('reason').trim()) { toast('수정 사유를 입력하세요.', 'error'); return; }
+          const startAt = g('start_at') ? new Date(g('start_at')).toISOString() : p.start_at;
+          const endAt = g('end_at') ? new Date(g('end_at')).toISOString() : p.end_at;
+          const workTime = (startAt && endAt) ? Math.max(0, Math.round((new Date(endAt) - new Date(startAt)) / 60000)) : (p.work_time || 0);
+          try {
+            await db.update('work_order_processes', p.id, {
+              start_at: startAt, end_at: endAt, work_time: workTime,
+              time_edited_by: g('editor'), time_edit_reason: g('reason').trim(), time_edited_at: new Date().toISOString(),
+            });
+            close(); toast('작업시간이 수정되었습니다. (수정 이력 기록)'); load();
+          } catch (e) { toast(e.message || '수정 실패', 'error'); }
+        };
+      },
+    });
+  }
+  load();
+}
+
 // 3-3b 생산일보 — 일자별 실적 자동집계 (작업지시·생산·불량·작업시간 → 나머지 자동)
 export async function dailyReport(root) {
   const state = { date: todayStr() };

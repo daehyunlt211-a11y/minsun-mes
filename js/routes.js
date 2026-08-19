@@ -72,6 +72,7 @@ export const MENU = [
       { label: '생산계획관리', path: '/production/plans' },
       { label: '작업지시관리', path: '/production/work-orders' },
       { label: '생산실적', path: '/production/results' },
+      { label: '작업시간 수정(관리자)', path: '/production/time-adjust' },
       { label: '생산일보', path: '/production/daily' },
       { label: '생산현황판', path: '/production/board' },
     ],
@@ -200,6 +201,7 @@ export const ROUTES = {
   '/production/plans': { render: prod.productionPlans, title: '생산계획관리', group: '생산관리' },
   '/production/work-orders': { render: prod.workOrders, title: '작업지시관리', group: '생산관리' },
   '/production/results': { render: prod.productionResults, title: '생산실적', group: '생산관리' },
+  '/production/time-adjust': { render: prod.timeAdjust, title: '작업시간 수정(관리자)', group: '생산관리' },
   '/production/daily': { render: prod.dailyReport, title: '생산일보', group: '생산관리' },
   '/production/board': { render: prod.productionBoard, title: '생산현황판', group: '생산관리' },
 

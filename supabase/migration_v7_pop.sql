@@ -28,3 +28,8 @@ alter table work_order_processes add column if not exists accept_qty numeric def
 alter table production_results add column if not exists scrap_qty numeric default 0;
 alter table production_results add column if not exists rework_qty numeric default 0;
 alter table production_results add column if not exists accept_qty numeric default 0;
+
+-- 작업시간 관리자 수정 이력 (생산 회의 4.6)
+alter table work_order_processes add column if not exists time_edited_by text;
+alter table work_order_processes add column if not exists time_edit_reason text;
+alter table work_order_processes add column if not exists time_edited_at timestamptz;
