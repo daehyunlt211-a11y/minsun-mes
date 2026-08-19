@@ -144,11 +144,37 @@ const sbAdapter = {
     return { rows: data || [], total: count || 0 };
   },
   async get(table, id) { const { data, error } = await supabase.from(table).select('*').eq('id', id).single(); if (error) throw error; return data; },
-  async insert(table, obj) { const { data, error } = await supabase.from(table).insert(obj).select().single(); if (error) throw error; return data; },
-  async update(table, id, obj) { const { data, error } = await supabase.from(table).update(obj).eq('id', id).select().single(); if (error) throw error; return data; },
+  async insert(table, obj) {
+    let payload = { ...obj };
+    for (let i = 0; i < 25; i++) {
+      const { data, error } = await supabase.from(table).insert(payload).select().single();
+      if (!error) return data;
+      const drop = missingColumn(error); // 마이그레이션 미적용 컬럼은 제외 후 재시도
+      if (drop && drop in payload) { delete payload[drop]; continue; }
+      throw error;
+    }
+    throw new Error('저장 실패: 컬럼 정리 한도 초과');
+  },
+  async update(table, id, obj) {
+    let payload = { ...obj };
+    for (let i = 0; i < 25; i++) {
+      const { data, error } = await supabase.from(table).update(payload).eq('id', id).select().single();
+      if (!error) return data;
+      const drop = missingColumn(error);
+      if (drop && drop in payload) { delete payload[drop]; continue; }
+      throw error;
+    }
+    throw new Error('수정 실패: 컬럼 정리 한도 초과');
+  },
   async remove(table, id) { const { error } = await supabase.from(table).delete().eq('id', id); if (error) throw error; return true; },
   async resetDemo() {},
 };
+// PostgREST가 알려주는 "미존재 컬럼" 이름을 추출 (마이그레이션 미적용 대비)
+function missingColumn(error) {
+  const msg = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  const m = /Could not find the '([^']+)' column/.exec(msg) || /column "([^"]+)"/.exec(msg) || /'([^']+)' column of/.exec(msg);
+  return m ? m[1] : null;
+}
 function sbFilters(q, opts) {
   if (opts.filters) for (const [k, v] of Object.entries(opts.filters)) { if (v !== '' && v != null && v !== '__all__') q = q.eq(k, v); }
   if (opts.dateRange && opts.dateRange.key) {

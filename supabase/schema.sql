@@ -1775,3 +1775,17 @@ alter table pfmea_items add column if not exists past_defect text;
 alter table control_plan_items add column if not exists record_method text;
 alter table work_std_steps add column if not exists torque text;
 alter table work_std_steps add column if not exists weld_condition text;
+
+-- =====================================================================
+-- v5 확장 — 회의록(260813~260814) 반영: 품목·수주·출하·POP 이상발생
+--   (전체 정의는 supabase/migration_v5_minutes.sql 참고)
+-- =====================================================================
+alter table items add column if not exists customer_part_no text;
+alter table items add column if not exists car_model text;
+alter table sales_orders add column if not exists urgent_yn boolean default false;
+alter table sales_orders add column if not exists ship_to text;
+alter table shipping_orders add column if not exists urgent_yn boolean default false;
+alter table shipping_orders add column if not exists ship_to text;
+alter table equipment_downtimes add column if not exists wo_no text;
+alter table equipment_downtimes add column if not exists process text;
+alter table equipment_downtimes add column if not exists note text;

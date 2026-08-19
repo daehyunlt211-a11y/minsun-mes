@@ -169,6 +169,9 @@ export async function popDetail(root, params = {}) {
   try { toolLots = (await db.all('tool_movements', {})).filter(m => m.move_type === '입고'); } catch { toolLots = []; }
   try { toolUsages = await db.all('tool_usages', {}); } catch { toolUsages = []; }
 
+  // 이상 발생(MRB) 사유 코드
+  let downtimeCodes = [];
+  try { downtimeCodes = (await db.all('downtime_codes', { sort: 'code' })).filter(c => c.use_yn !== false); } catch { downtimeCodes = []; }
   // 4M 스냅샷 · 생산 중 4M 변경 (v4 테이블 미생성 시 무시)
   let snaps = [], fmChanges = [], devDocsAll = [];
   try { snaps = await db.all('wo_4m_snapshots', { filters: { wo_no: wo.wo_no }, sort: 'seg_no' }); } catch { snaps = []; }
@@ -367,6 +370,50 @@ export async function popDetail(root, params = {}) {
     slot.querySelectorAll('[data-end]').forEach(b => b.onclick = () => endProc(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => openToolUse(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => openFourMChange(b.closest('[data-id]').dataset.id));
+    slot.querySelectorAll('[data-issue]').forEach(b => b.onclick = () => openIssue(b.closest('[data-id]').dataset.id));
+  }
+
+  // 이상 발생(MRB) — 일시정지와 별도로 이상 사유를 기록 (비가동/품질문제)
+  function openIssue(id) {
+    const p = procs.find(x => String(x.id) === String(id));
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    body.innerHTML = `
+      <div class="field col-2"><label>공정 / 설비</label><input class="input" value="${escapeHtml(p.process_name || '')} · ${escapeHtml(p.equipment || '-')}" readonly></div>
+      <div class="field"><label>이상 유형 <span class="req">*</span></label>
+        <select class="select" name="reason"><option value="">선택</option>${downtimeCodes.map(c => `<option value="${escapeHtml(c.code)}" data-name="${escapeHtml(c.name)}">${escapeHtml(c.code)} · ${escapeHtml(c.name)} (${escapeHtml(c.category || '')})</option>`).join('')}
+          <option value="__quality__" data-name="품질 이상">품질 이상 (MRB)</option></select></div>
+      <div class="field"><label>정지 시간(분)</label><input class="input" name="minutes" type="number" min="0" step="1" value="0" placeholder="추정 정지시간"></div>
+      <div class="field col-2"><label>상세 내용 / 조치 <span class="req">*</span></label><textarea class="textarea" name="note" placeholder="예: 3번 스핀들 이상음 발생 → 설비 정지 후 보전 요청"></textarea></div>
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:10px 12px;border-radius:10px">${icon('alert', 15)} 이상 발생은 비가동 실적으로 기록됩니다. 품질 이상(MRB)은 필요 시 부적합관리로 별도 등록하세요.</div>`;
+    openModal({
+      title: `이상 발생 등록 — ${p.process_name}`, body,
+      footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 등록</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        footEl.querySelector('[data-ok]').onclick = async () => {
+          const sel = body.querySelector('[name="reason"]');
+          const reasonCode = sel.value;
+          const reasonName = sel.selectedOptions[0]?.dataset.name || '';
+          const note = body.querySelector('[name="note"]').value.trim();
+          if (!reasonCode) { toast('이상 유형을 선택하세요.', 'error'); return; }
+          if (!note) { toast('상세 내용을 입력하세요.', 'error'); return; }
+          try {
+            const all = await db.all('equipment_downtimes', {}).catch(() => []);
+            const dt_no = nextDocNo('DT', all.map(x => x.dt_no));
+            const eq = equips.find(e => e.name === p.equipment) || {};
+            await db.insert('equipment_downtimes', {
+              dt_no, dt_date: todayStr(), equip_code: eq.code || '', equip_name: p.equipment || '',
+              reason_code: reasonCode === '__quality__' ? 'DT-05' : reasonCode, reason_name: reasonName,
+              minutes: Number(body.querySelector('[name="minutes"]').value) || 0,
+              worker: p.worker || getWorker(), wo_no: wo.wo_no, process: p.process_name, note,
+            });
+            close();
+            toast(`[${p.process_name}] 이상 발생(${reasonName})이 등록되었습니다.`, 'info');
+          } catch (e) { toast(e.message || '이상 등록 실패', 'error'); }
+        };
+      },
+    });
   }
 
   // 공구 투입 (선택사항) — 진행 공정에서 그 공정에 지정된 공구를 LOT 기준으로 투입
@@ -529,7 +576,8 @@ export async function popDetail(root, params = {}) {
       if (pend) return `<span class="badge badge--warning" style="height:36px;padding:0 14px;font-size:13px" title="4M 변경 승인 후 작업을 재개할 수 있습니다">${icon('clock', 16)} 4M 승인대기 · ${escapeHtml(pend.fm_no)}</span>`;
       const toolBtn = toolsForProcess(p.process_name).length ? `<button class="btn btn--pop" data-tool style="background:var(--surface);color:var(--text)">${icon('tool', 16)} 공구투입</button>` : '';
       const fmBtn = `<button class="btn btn--pop" data-fm style="background:var(--surface);color:var(--text)">${icon('refresh', 16)} 4M 변경</button>`;
-      return `${toolBtn}${fmBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
+      const issueBtn = `<button class="btn btn--pop" data-issue style="background:var(--warning-bg);color:var(--warning)">${icon('alert', 16)} 이상 발생</button>`;
+      return `${toolBtn}${fmBtn}${issueBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
     }
     const blocked = stepBlockReason(p);
     if (blocked) return `<button class="btn btn--pop" disabled title="${blocked} 시작 가능">${icon('clock', 18)} 대기</button>`;
