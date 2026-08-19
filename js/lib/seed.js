@@ -142,6 +142,9 @@ export const SEED = {
     { item_code: 'P-SP2-PE', process_code: 'OP80', seq: 20, process_name: '외주 표면처리', in_out: '외주', std_time: 0, equipment: '' },
     { item_code: 'P-SP2-PE', process_code: 'OP60', seq: 30, process_name: '조립', in_out: '사내', std_time: 7, equipment: 'ASSY-01' },
     { item_code: 'P-SP2-PE', process_code: 'OP90', seq: 40, process_name: '검사', in_out: '사내', std_time: 5, equipment: 'CMM-01' },
+    // 반제품 라우팅 — 계획생산으로 반제품 단독 생산 가능 (황삭 후 중간공정창고 입고)
+    { item_code: 'S-MCT-01', process_code: 'OP10', seq: 10, process_name: 'MCT가공(황삭)', in_out: '사내', std_time: 8, equipment: 'MCT-01' },
+    { item_code: 'S-MCT-01', process_code: 'OP90', seq: 20, process_name: '검사', in_out: '사내', std_time: 4, equipment: 'CMM-01' },
   ],
   process_equipments: [
     { process_code: 'OP10', equipment_code: 'MCT-01', equipment_name: 'MCT 머시닝센터 1호기' },

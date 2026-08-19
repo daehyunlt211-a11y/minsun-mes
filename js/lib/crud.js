@@ -379,8 +379,9 @@ export function createCrudPage(cfg) {
       const reqMark = f.required ? '<span class="req">*</span>' : '';
       let control;
       if (f.ref) {
-        // 기준정보 참조 드롭다운
-        const rows = refData[f.ref.table] || [];
+        // 기준정보 참조 드롭다운 (ref.filter로 후보 제한 가능)
+        let rows = refData[f.ref.table] || [];
+        if (typeof f.ref.filter === 'function') rows = rows.filter(f.ref.filter);
         const opts = rows.map(r => {
           const v = r[f.ref.value];
           const label = typeof f.ref.label === 'function' ? f.ref.label(r) : r[f.ref.label || f.ref.value];
