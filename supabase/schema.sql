@@ -1830,3 +1830,8 @@ alter table work_order_processes add column if not exists time_edited_at timesta
 -- =====================================================================
 alter table drawings add column if not exists drawing_type text;
 alter table drawings add column if not exists file_url text;
+
+-- =====================================================================
+-- v9 확장 — 품목 대표불량 사진 (회의록 260814 생산 4.3)
+-- =====================================================================
+alter table items add column if not exists defect_photos text;

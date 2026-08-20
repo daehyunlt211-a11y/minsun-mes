@@ -162,9 +162,10 @@ export async function popDetail(root, params = {}) {
   let equips = [], users = [];
   try { equips = await db.all('equipments', { sort: 'code' }); } catch { equips = []; }
   try { users = (await db.all('users', { sort: 'name' })).filter(u => u.use_yn !== false); } catch { users = []; }
-  // 공정별 대상 품목명/유형(구성품 단계 표시용)
-  const itemNameMap = {}, itemTypeMap = {};
-  try { for (const it of await db.all('items', {})) { itemNameMap[it.code] = it.name; itemTypeMap[it.code] = it.item_type; } } catch { /* noop */ }
+  // 공정별 대상 품목명/유형(구성품 단계 표시용) + 대표불량 사진
+  const itemNameMap = {}, itemTypeMap = {}, defectPhotoMap = {};
+  try { for (const it of await db.all('items', {})) { itemNameMap[it.code] = it.name; itemTypeMap[it.code] = it.item_type; defectPhotoMap[it.code] = it.defect_photos; } } catch { /* noop */ }
+  const defectPhotosOf = (code) => { try { return JSON.parse(defectPhotoMap[code] || '[]'); } catch { return []; } };
   const itemNameOf = (code) => itemNameMap[code] || code || '';
   const itemTypeOf = (code) => itemTypeMap[code] || '구성품';
   // BOM 구조(완제품→반제품→원자재)
@@ -757,8 +758,14 @@ export async function popDetail(root, params = {}) {
           ${equipOptions.map(e => `<option value="${escapeHtml(e.name)}" ${e.name === p.equipment ? 'selected' : ''}>${escapeHtml(e.code)} · ${escapeHtml(e.name)}</option>`).join('')}
         </select>${(p.process_code && equipOptions.length === 0) ? `<div class="field__err" style="color:var(--warning)">이 공정에 등록된 설비가 없습니다. 표준공정관리에서 설비를 지정하세요.</div>` : ''}</div>
       ${inputsHtml}
-      <div class="field col-2"><label>작업 전 대표 불량 확인 (4매) <span class="req">*</span></label>
-        <div class="flex" style="gap:8px;margin-bottom:8px">${[1, 2, 3, 4].map(n => `<div style="flex:1;aspect-ratio:1;background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-3);font-size:12px">${icon('alert', 20)}<span>대표불량 ${n}</span></div>`).join('')}</div>
+      <div class="field col-2"><label>작업 전 대표 불량 확인 <span class="req">*</span></label>
+        ${(() => {
+      const photos = defectPhotosOf(p.item_code || wo.item_code);
+      const cells = photos.length
+        ? photos.slice(0, 4).map(ph => `<div style="flex:1;min-width:0"><img src="${escapeHtml(ph.url)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;border:1px solid var(--border)"><div class="muted" style="font-size:11px;text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(ph.note || '')}</div></div>`).join('')
+        : [1, 2, 3, 4].map(n => `<div style="flex:1;aspect-ratio:1;background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-3);font-size:12px">${icon('alert', 20)}<span>미등록 ${n}</span></div>`).join('');
+      return `<div class="flex" style="gap:8px;margin-bottom:8px;align-items:flex-start">${cells}</div>${photos.length ? '' : '<div class="muted" style="font-size:12px;margin-bottom:8px">※ 대표불량 사진 미등록 — 품목관리에서 [대표불량] 버튼으로 등록하세요.</div>'}`;
+    })()}
         <label class="flex" style="gap:8px;padding:10px 12px;background:var(--warning-bg);border-radius:9px;cursor:pointer"><input type="checkbox" class="checkbox" name="defect_ack"> <b>위 대표 불량 유형을 확인했으며 동일 불량이 발생하지 않도록 작업하겠습니다.</b></label></div>`;
     openModal({
       title: `${p.process_name} 작업 시작`, body,

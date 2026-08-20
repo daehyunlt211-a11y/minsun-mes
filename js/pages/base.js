@@ -1,7 +1,69 @@
 // 기준정보관리: 사용자/부서/공통코드/거래처/품목/공구/설비/도면/표준재질/휴일
 import { createCrudPage } from '../lib/crud.js';
-import { num } from '../lib/format.js';
-import { badge } from '../ui/components.js';
+import { db } from '../lib/db.js';
+import { num, escapeHtml } from '../lib/format.js';
+import { badge, toast, openModal } from '../ui/components.js';
+import { icon } from '../ui/icons.js';
+
+// 품목 대표불량 사진 4매 등록 (POP 작업 시작 시 확인용) — 생산 회의 4.3
+const MAX_PHOTO_MB = 3;
+export function openDefectPhotos(item, onSaved) {
+  let photos = [];
+  try { photos = JSON.parse(item.defect_photos || '[]'); } catch { photos = []; }
+  photos = (Array.isArray(photos) ? photos : []).slice(0, 4);
+  while (photos.length < 4) photos.push({ url: '', note: '' });
+  const body = document.createElement('form');
+  body.className = 'form-grid';
+  const slot = (i) => {
+    const p = photos[i];
+    return `<div class="field"><label>대표불량 ${i + 1}</label>
+      <div class="dp-slot" data-i="${i}" style="border:2px dashed var(--border);border-radius:12px;padding:10px;text-align:center;cursor:pointer;background:var(--surface-2);min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px">
+        ${p.url ? `<img data-img="${i}" src="${escapeHtml(p.url)}" style="max-width:100%;max-height:110px;border-radius:8px">` : `${icon('alert', 22)}<span class="muted" style="font-size:12px" data-ph="${i}">클릭 또는 드래그하여 사진 등록</span>`}
+      </div>
+      <input type="file" data-file="${i}" accept="image/*" style="display:none">
+      <input class="input" data-note="${i}" style="margin-top:6px" placeholder="불량명/설명" value="${escapeHtml(p.note || '')}">
+      <input class="input" data-url="${i}" style="margin-top:6px" placeholder="또는 이미지 URL" value="${p.url && !String(p.url).startsWith('data:') ? escapeHtml(p.url) : ''}">
+    </div>`;
+  };
+  body.innerHTML = `<div class="field col-2"><label>품목</label><input class="input" value="${escapeHtml(item.code)} · ${escapeHtml(item.name || '')}" readonly></div>
+    ${[0, 1, 2, 3].map(slot).join('')}
+    <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} 여기 등록한 사진이 작업 POP의 [작업 시작] 시 대표 불량으로 표시됩니다. (최대 ${MAX_PHOTO_MB}MB/장)</div>`;
+  const setImg = (i, url) => {
+    photos[i].url = url;
+    const box = body.querySelector(`.dp-slot[data-i="${i}"]`);
+    box.innerHTML = url ? `<img data-img="${i}" src="${escapeHtml(url)}" style="max-width:100%;max-height:110px;border-radius:8px">` : `${icon('alert', 22)}<span class="muted" style="font-size:12px">클릭 또는 드래그하여 사진 등록</span>`;
+  };
+  const readFile = (i, f) => {
+    if (!f) return;
+    if (f.size > MAX_PHOTO_MB * 1024 * 1024) { toast(`사진이 너무 큽니다 (최대 ${MAX_PHOTO_MB}MB). URL을 사용하세요.`, 'error'); return; }
+    const r = new FileReader();
+    r.onload = () => { setImg(i, r.result); const u = body.querySelector(`[data-url="${i}"]`); if (u) u.value = ''; };
+    r.readAsDataURL(f);
+  };
+  body.querySelectorAll('.dp-slot').forEach(box => {
+    const i = +box.dataset.i;
+    box.onclick = () => body.querySelector(`[data-file="${i}"]`).click();
+    box.ondragover = (e) => { e.preventDefault(); box.style.borderColor = 'var(--brand)'; };
+    box.ondragleave = () => { box.style.borderColor = 'var(--border)'; };
+    box.ondrop = (e) => { e.preventDefault(); box.style.borderColor = 'var(--border)'; readFile(i, e.dataTransfer.files[0]); };
+  });
+  body.querySelectorAll('[data-file]').forEach(inp => inp.onchange = () => readFile(+inp.dataset.file, inp.files[0]));
+  body.querySelectorAll('[data-url]').forEach(inp => inp.oninput = () => { if (inp.value.trim()) setImg(+inp.dataset.url, inp.value.trim()); });
+  openModal({
+    title: `대표불량 사진 — ${item.name}`, body, wide: true,
+    footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 저장</button>`,
+    onMount: ({ footEl, close }) => {
+      footEl.querySelector('[data-cancel]').onclick = close;
+      footEl.querySelector('[data-ok]').onclick = async () => {
+        const out = [0, 1, 2, 3].map(i => ({ url: photos[i].url || body.querySelector(`[data-url="${i}"]`).value.trim(), note: body.querySelector(`[data-note="${i}"]`).value.trim() })).filter(p => p.url);
+        try {
+          await db.update('items', item.id, { defect_photos: JSON.stringify(out) });
+          close(); toast(`대표불량 사진 ${out.length}매가 저장되었습니다.`); onSaved && onSaved();
+        } catch (e) { toast(e.message || '저장 실패', 'error'); }
+      };
+    },
+  });
+}
 
 // 거래처 구분 (민선: 원소재·절단업체 포함)
 const PARTNER_TYPES = ['매출처', '매입처', '외주가공처', '원소재업체', '절단업체'];
@@ -132,8 +194,14 @@ export const items = createCrudPage({
   wideForm: true,
   filters: [{ key: 'item_type', label: '품목유형', options: ['완제품', '반제품', '원소재', '부자재'] }],
   statusChips: { key: 'item_type', options: ['완제품', '반제품', '원소재', '부자재'] },
+  rowActions: [{
+    label: '대표불량', icon: 'alert', title: '대표불량 사진 4매 등록 (POP 작업시작 시 표시)',
+    show: (r) => ['완제품', '반제품'].includes(r.item_type),
+    onClick: (r, reload) => openDefectPhotos(r, reload),
+  }],
   columns: [
     { key: 'code', label: '품목코드', cls: 'cell-code', sortable: true },
+    { key: 'defect_photos', label: '대표불량', align: 'center', render: (r) => { let n = 0; try { n = JSON.parse(r.defect_photos || '[]').length; } catch { n = 0; } return n ? `<span class="badge badge--success">${n}매</span>` : '<span class="muted">-</span>'; }, csv: (r) => { try { return JSON.parse(r.defect_photos || '[]').length; } catch { return 0; } } },
     { key: 'name', label: '품명', cls: 'cell-strong', sortable: true },
     { key: 'item_type', label: '유형', type: 'badge' },
     { key: 'customer', label: '고객사' },
