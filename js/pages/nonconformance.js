@@ -112,7 +112,7 @@ export async function nonconformances(root) {
     if (!list.length) { slot.innerHTML = `<div class="empty" style="padding:50px">${icon('inbox', 48)}<h4>부적합 내역이 없습니다</h4></div>`; return; }
     slot.innerHTML = `<table class="grid"><thead><tr>
       <th>부적합번호</th><th>발생일</th><th class="center">구분</th><th>발생공정</th><th>품명</th><th>LOT</th><th>불량유형</th>
-      <th class="num">발생</th><th class="num">격리</th><th class="num">처리</th><th class="center">진행상태</th><th class="center">기한</th><th class="center">대책</th><th class="center" style="width:88px">관리</th>
+      <th class="num">발생</th><th class="num">격리</th><th class="num">처리</th><th class="center">진행상태</th><th class="center">기한</th><th class="center">대책</th><th class="center" style="width:170px">판정·관리</th>
     </tr></thead><tbody>${list.map(r => {
       const prog = r.progress || (r.status === '완료' ? '완료' : '발생');
       const handled = (+r.sort_qty || 0) + (+r.rework_qty || 0) + (+r.scrap_qty || 0) + (+r.accept_qty || 0);
@@ -129,11 +129,13 @@ export async function nonconformances(root) {
         <td class="center">${r.due_date ? (overdue ? badge(fmtDate(r.due_date), 'danger') : fmtDate(r.due_date)) : '<span class="muted">-</span>'}</td>
         <td class="center">${imp ? badge(imp.status || '진행중', imp.status === '완료' ? 'success' : 'warning') : '<span class="muted">미수립</span>'}</td>
         <td class="center"><div class="row-actions">
+          ${!r.action_type ? `<button class="btn btn--sm btn--primary" data-judge="${r.id}" title="재작업/특채/폐기 판정">${icon('checkCircle', 14)} 판정</button>` : `<span class="badge badge--${r.action_type === '폐기' ? 'danger' : r.action_type === '재작업' ? 'warning' : 'success'}">${escapeHtml(r.action_type)}</span>`}
           <button class="icon-btn" data-edit="${r.id}" title="수정">${icon('edit', 15)}</button>
           <button class="icon-btn" data-del="${r.id}" title="삭제">${icon('trash', 15)}</button></div></td>
       </tr>`;
     }).join('')}</tbody></table>`;
     slot.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = (e) => { if (e.target.closest('button')) return; select(list.find(x => x.id === tr.dataset.id)); });
+    slot.querySelectorAll('[data-judge]').forEach(b => b.onclick = () => openJudge(list.find(x => x.id === b.dataset.judge)));
     slot.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openForm(list.find(x => x.id === b.dataset.edit)));
     slot.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
       const r = list.find(x => x.id === b.dataset.del);
@@ -143,6 +145,98 @@ export async function nonconformances(root) {
   }
 
   function select(r) { if (!r) return; state.selected = r; renderTable(); renderDetail(); }
+
+  // 불량 판정 (관리자) — 재작업 / 특채 / 폐기 (생산 회의 5·6·7)
+  //  · 특채: 완료수량에 다시 반영(양품 회복) · 폐기: 차감 유지 · 재작업: 재작업 작업지시 생성
+  function openJudge(r) {
+    if (!r) return;
+    const JUDGE = [
+      { key: '재작업', desc: '재작업 수량만큼 재작업 작업지시 생성 (POP·작업리스트 표시)', tone: 'warning' },
+      { key: '특채', desc: '사용 승인 — 완료수량에 다시 반영(양품 회복)', tone: 'success' },
+      { key: '폐기', desc: '해당 수량 폐기 — 생산(완료)수량에서 차감 유지', tone: 'danger' },
+    ];
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    body.innerHTML = `
+      <div class="field col-2"><label>부적합</label><input class="input" value="${escapeHtml(r.ncr_no)} · ${escapeHtml(r.item_name || '')} · ${escapeHtml(r.defect_type || '')} ${num(r.defect_qty)}EA" readonly></div>
+      <div class="field col-2"><label>판정 <span class="req">*</span></label>
+        <div class="chips" id="jg">${JUDGE.map((j, i) => `<button type="button" class="chip ${i === 0 ? 'active' : ''}" data-j="${j.key}">${escapeHtml(j.key)}</button>`).join('')}</div>
+        <input type="hidden" name="judge" value="재작업"><div class="muted" data-jdesc style="margin-top:6px;font-size:12.5px">${escapeHtml(JUDGE[0].desc)}</div></div>
+      <div class="field"><label>판정 수량 <span class="req">*</span></label><input class="input" type="number" name="qty" min="1" max="${+r.defect_qty || 0}" step="1" value="${+r.defect_qty || 0}"></div>
+      <div class="field"><label>판정자</label><select class="select" name="judged_by"><option value="">선택</option>${users.map(u => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)}</option>`).join('')}</select></div>
+      <div class="field col-2"><label>판정 사유/비고</label><input class="input" name="judge_note" placeholder="예: 조립부 영향 없음 → 특채"></div>`;
+    body.querySelectorAll('#jg [data-j]').forEach(b => b.onclick = () => {
+      body.querySelectorAll('#jg [data-j]').forEach(x => x.classList.toggle('active', x === b));
+      body.querySelector('[name="judge"]').value = b.dataset.j;
+      body.querySelector('[data-jdesc]').textContent = (JUDGE.find(j => j.key === b.dataset.j) || {}).desc || '';
+    });
+    openModal({
+      title: `불량 판정 — ${r.ncr_no}`, body, wide: true,
+      footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 판정 확정</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        footEl.querySelector('[data-ok]').onclick = async () => {
+          const judge = body.querySelector('[name="judge"]').value;
+          const qty = Math.min(+r.defect_qty || 0, Number(body.querySelector('[name="qty"]').value) || 0);
+          if (qty <= 0) { toast('판정 수량을 입력하세요.', 'error'); return; }
+          const note = body.querySelector('[name="judge_note"]').value.trim();
+          const judgedBy = body.querySelector('[name="judged_by"]').value;
+          try {
+            const patch = {
+              action_type: judge, isolate_qty: r.isolate_qty || r.defect_qty, judged_by: judgedBy, judge_note: note,
+              sort_qty: 0, rework_qty: judge === '재작업' ? qty : 0, scrap_qty: judge === '폐기' ? qty : 0, accept_qty: judge === '특채' ? qty : 0,
+              progress: judge === '재작업' ? '조치중' : '완료', status: judge === '재작업' ? '처리중' : '완료',
+            };
+            await db.update('nonconformances', r.id, patch);
+            // 수량 효과 반영
+            if (judge === '특채') await adjustCompletion(r, qty, 'accept');   // 완료수량 회복
+            else if (judge === '폐기') await adjustCompletion(r, qty, 'scrap'); // 차감(기록)
+            else if (judge === '재작업') await createReworkOrder(r, qty);       // 재작업 지시 생성
+            close();
+            toast(judge === '재작업' ? `재작업 판정 — 재작업 작업지시가 생성되었습니다 (${num(qty)}EA).`
+              : judge === '특채' ? `특채 판정 — 완료수량에 ${num(qty)}EA 반영되었습니다.`
+                : `폐기 판정 — ${num(qty)}EA 차감 처리되었습니다.`);
+            await reload();
+          } catch (e) { toast(e.message || '판정 실패', 'error'); }
+        };
+      },
+    });
+  }
+  // 완료수량 조정: 특채는 양품 회복(+), 폐기는 폐기수량 기록 (양품은 이미 차감됨)
+  async function adjustCompletion(r, qty, kind) {
+    if (r.process_id) {
+      try {
+        const wop = await db.get('work_order_processes', r.process_id);
+        if (wop) {
+          const patch = kind === 'accept'
+            ? { good_qty: (+wop.good_qty || 0) + qty, accept_qty: (+wop.accept_qty || 0) + qty }
+            : { scrap_qty: (+wop.scrap_qty || 0) + qty };
+          await db.update('work_order_processes', r.process_id, patch);
+        }
+      } catch { /* noop */ }
+    }
+    try {
+      const results = await db.all('production_results', { filters: { wo_no: r.wo_no } }).catch(() => []);
+      const res = results.filter(x => x.process === r.process).sort((a, b) => String(b.result_date || '').localeCompare(String(a.result_date || '')))[0];
+      if (res) {
+        const patch = kind === 'accept'
+          ? { good_qty: (+res.good_qty || 0) + qty, accept_qty: (+res.accept_qty || 0) + qty }
+          : { scrap_qty: (+res.scrap_qty || 0) + qty };
+        await db.update('production_results', res.id, patch);
+      }
+    } catch { /* noop */ }
+  }
+  // 재작업 작업지시 생성 — POP·작업리스트에 [재작업]으로 표시
+  async function createReworkOrder(r, qty) {
+    const all = await db.all('work_orders', {}).catch(() => []);
+    const wo_no = nextDocNo('WO', all.map(x => x.wo_no));
+    await db.insert('work_orders', {
+      wo_no, lot_no: 'LOT-' + wo_no, wo_date: todayStr(), prod_type: '재작업', is_rework: true,
+      rework_of: r.wo_no || '', ref_ncr: r.ncr_no, item_code: r.item_code, item_name: r.item_name,
+      order_qty: qty, process: r.process || '', start_date: todayStr(), status: '대기',
+      remark: `재작업 지시 · 부적합 ${r.ncr_no}${r.wo_no ? ' (원 ' + r.wo_no + ')' : ''} · ${r.process || ''}`,
+    });
+  }
 
   function renderDetail() {
     const r = state.selected; const slot = root.querySelector('#nc-detail');

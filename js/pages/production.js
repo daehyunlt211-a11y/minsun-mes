@@ -140,7 +140,7 @@ export const workOrders = createCrudPage({
   columns: [
     { key: 'wo_no', label: '작업지시번호', cls: 'cell-code', sortable: true },
     { key: 'lot_no', label: 'LOT No.', cls: 'cell-code', render: (r) => escapeHtml(r.lot_no || ('LOT-' + r.wo_no)) },
-    { key: 'prod_type', label: '생산구분', align: 'center', render: (r) => badge(r.prod_type || '수주생산', r.prod_type === '계획생산' ? 'violet' : 'brand'), csv: (r) => (r.prod_type || '수주생산') },
+    { key: 'prod_type', label: '생산구분', align: 'center', render: (r) => badge(r.prod_type || '수주생산', r.prod_type === '재작업' ? 'danger' : r.prod_type === '계획생산' ? 'violet' : 'brand'), csv: (r) => (r.prod_type || '수주생산') },
     { key: 'wo_date', label: '지시일', type: 'date', sortable: true },
     { key: 'item_code', label: '품목코드', cls: 'cell-code' },
     { key: 'item_name', label: '품명', cls: 'cell-strong' },

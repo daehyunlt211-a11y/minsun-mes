@@ -1835,3 +1835,14 @@ alter table drawings add column if not exists file_url text;
 -- v9 확장 — 품목 대표불량 사진 (회의록 260814 생산 4.3)
 -- =====================================================================
 alter table items add column if not exists defect_photos text;
+
+-- =====================================================================
+-- v10 확장 — POP 불량등록 → 부적합 판정(재작업/특채/폐기)
+-- =====================================================================
+alter table nonconformances add column if not exists wo_no text;
+alter table nonconformances add column if not exists process_id text;
+alter table nonconformances add column if not exists judged_by text;
+alter table nonconformances add column if not exists judge_note text;
+alter table work_orders add column if not exists is_rework boolean default false;
+alter table work_orders add column if not exists rework_of text;
+alter table work_orders add column if not exists ref_ncr text;

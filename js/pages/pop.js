@@ -9,8 +9,9 @@ import { openNonconformanceForm } from './nonconformanceForm.js';
 import { getActiveSpec } from './inspectionSpec.js';
 import { openDrawingViewer } from './drawing.js';
 
-// 측정 단계 (생산 회의 4.1) — 세팅품(초물) 필수, 중·종물 선택
-const MEAS_STAGES = ['세팅품', '중물', '종물'];
+// 측정 단계 (생산 회의) — 초품(시제품) 게이트 필수 → 초물 후 중·종물 선택
+const SETUP_STAGE = '초품';
+const RUN_STAGES = ['초물', '중물', '종물'];
 // 정량/정성 판정 — 규격(LSL/USL 또는 기준값±공차) 대비 측정값 OK/NG
 function judgePoint(it, val) {
   if (it.eval_method === '정성적' || (it.lsl == null && it.usl == null && !it.tolerance)) return null; // 육안=수동판정
@@ -192,8 +193,15 @@ export async function popDetail(root, params = {}) {
   // 이상 발생(MRB) 사유 코드
   let downtimeCodes = [];
   try { downtimeCodes = (await db.all('downtime_codes', { sort: 'code' })).filter(c => c.use_yn !== false); } catch { downtimeCodes = []; }
+  // 불량유형 코드 + 이 작업지시에 등록된 부적합(불량)
+  let defectCodes = [], ncItems = [];
+  try { defectCodes = (await db.all('common_codes', {})).filter(c => c.group_code === 'DEFECT_TYPE' && c.use_yn !== false).sort((a, b) => (+a.sort_no || 0) - (+b.sort_no || 0)); } catch { defectCodes = []; }
+  try { ncItems = await db.all('nonconformances', { filters: { wo_no: wo.wo_no } }); } catch { ncItems = []; }
+  const reloadNc = async () => { try { ncItems = await db.all('nonconformances', { filters: { wo_no: wo.wo_no } }); } catch { /* noop */ } };
+  // 공정별 등록 불량수량 합계
+  const defectQtyOf = (p) => ncItems.filter(n => String(n.process_id) === String(p.id)).reduce((s, n) => s + (+n.defect_qty || 0), 0);
 
-  // POP 측정(세팅품/초·중·종물) 인터록 — 검사규격(공정) 재사용
+  // POP 측정(초품→초물·중물·종물) 인터록 — 검사규격(공정) 재사용
   let popMeas = [];
   try { popMeas = await db.all('pop_measurements', { filters: { wo_no: wo.wo_no } }); } catch { popMeas = []; }
   const specCache = {};
@@ -204,7 +212,7 @@ export async function popDetail(root, params = {}) {
   }
   const measRow = (p, stage) => popMeas.filter(m => String(m.process_id) === String(p.id) && m.stage === stage)
     .sort((a, b) => String(b.measured_at || '').localeCompare(String(a.measured_at || '')))[0];
-  const setupOk = (p) => { const m = measRow(p, '세팅품'); return !!(m && m.result === 'OK'); };
+  const setupOk = (p) => { const m = measRow(p, SETUP_STAGE); return !!(m && m.result === 'OK'); };
   async function reloadMeas() { try { popMeas = await db.all('pop_measurements', { filters: { wo_no: wo.wo_no } }); } catch { /* noop */ } }
   // 4M 스냅샷 · 생산 중 4M 변경 (v4 테이블 미생성 시 무시)
   let snaps = [], fmChanges = [], devDocsAll = [];
@@ -408,18 +416,65 @@ export async function popDetail(root, params = {}) {
     slot.querySelectorAll('[data-fm]').forEach(b => b.onclick = () => openFourMChange(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-issue]').forEach(b => b.onclick = () => openIssue(b.closest('[data-id]').dataset.id));
     slot.querySelectorAll('[data-measure]').forEach(b => b.onclick = () => openMeasure(b.closest('[data-id]').dataset.id, b.dataset.measure));
+    slot.querySelectorAll('[data-defect]').forEach(b => b.onclick = () => openDefectRegister(b.closest('[data-id]').dataset.id));
   }
 
-  // POP 측정(세팅품/중·종물) — 검사규격 대비 자동판정, 세팅품 OK 시 인터록 해제(진행 전환)
+  // 불량 등록 (POP) — 종료 전 생산 중 불량유형·수량을 등록 → 부적합관리에 미판정으로 표시
+  function openDefectRegister(id) {
+    const p = procs.find(x => String(x.id) === String(id));
+    const code = p.item_code || wo.item_code;
+    const registered = ncItems.filter(n => String(n.process_id) === String(p.id));
+    const body = document.createElement('form');
+    body.className = 'form-grid';
+    body.innerHTML = `
+      <div class="field col-2"><label>공정 / 품목</label><input class="input" value="${escapeHtml(p.process_name || '')} · ${escapeHtml(itemNameOf(code))}" readonly></div>
+      <div class="field"><label>불량유형 <span class="req">*</span></label>
+        <select class="select" name="defect_type"><option value="">선택</option>${defectCodes.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>불량수량 <span class="req">*</span></label><input class="input" name="defect_qty" type="number" min="1" step="1" value="1"></div>
+      <div class="field col-2"><label>세부 내용 / 비고</label><input class="input" name="remark" placeholder="예: 3번 홀 위치 이탈"></div>
+      ${registered.length ? `<div class="field col-2"><label>이미 등록된 불량 (${registered.length}건)</label>
+        <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">${registered.map((n, i) => `<div class="flex between" style="padding:8px 12px;${i ? 'border-top:1px solid var(--border)' : ''}">
+          <span>${escapeHtml(n.ncr_no || '')} · ${escapeHtml(n.defect_type || '')} <b>${num(n.defect_qty)}</b></span>${badge(n.action_type || '미판정', n.action_type ? 'success' : 'warning')}</div>`).join('')}</div></div>` : ''}
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} 등록한 불량은 <b>품질관리 › 부적합관리</b>에 미판정으로 표시되며, 관리자가 재작업·특채·폐기를 판정합니다.</div>`;
+    openModal({
+      title: `불량 등록 — ${p.process_name}`, body,
+      footer: `<button class="btn" data-cancel>취소</button><button class="btn btn--primary" data-ok>${icon('check', 16)} 등록</button>`,
+      onMount: ({ footEl, close }) => {
+        footEl.querySelector('[data-cancel]').onclick = close;
+        footEl.querySelector('[data-ok]').onclick = async () => {
+          const g = (n) => body.querySelector(`[name="${n}"]`).value.trim();
+          const qty = Number(g('defect_qty')) || 0;
+          if (!g('defect_type')) { toast('불량유형을 선택하세요.', 'error'); return; }
+          if (qty <= 0) { toast('불량수량을 입력하세요.', 'error'); return; }
+          try {
+            const all = await db.all('nonconformances', {}).catch(() => []);
+            const ncr_no = nextDocNo('NC', all.map(x => x.ncr_no));
+            await db.insert('nonconformances', {
+              ncr_no, occur_date: todayStr(), ncr_type: '공정부적합', source_type: 'POP', source_no: wo.wo_no,
+              wo_no: wo.wo_no, process_id: String(p.id), process: p.process_name, lot_no: segLot(curSegOf(p)),
+              item_code: code, item_name: itemNameOf(code), equipment: p.equipment || '',
+              defect_type: g('defect_type'), defect_qty: qty, remark: g('remark'),
+              worker: p.worker || getWorker(), progress: '발생', status: '처리중', action_type: '',
+            });
+            await reloadNc();
+            close(); render();
+            toast(`불량 ${num(qty)}EA(${g('defect_type')}) 등록 — 부적합관리에서 판정하세요.`, 'info');
+          } catch (e) { toast(e.message || '불량 등록 실패', 'error'); }
+        };
+      },
+    });
+  }
+
+  // POP 측정(초품/초물·중물·종물) — 검사규격 대비 자동판정, 초품 OK 시 인터록 해제(진행 전환)
   async function openMeasure(id, stage) {
     const p = procs.find(x => String(x.id) === String(id));
     const spec = await specFor(p);
     const items = (spec?.items || []).filter(it => it.eval_method !== '정성적' || it.spec_value); // 측정 포인트
-    const isSetup = stage === '세팅품';
+    const isSetup = stage === SETUP_STAGE;
     const body = document.createElement('form');
     body.className = 'form-grid';
-    const stageSel = isSetup ? `<input type="hidden" name="stage" value="세팅품">`
-      : `<div class="field col-2"><label>측정 단계</label><select class="select" name="stage">${['중물', '종물'].map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>`;
+    const stageSel = isSetup ? `<input type="hidden" name="stage" value="${SETUP_STAGE}">`
+      : `<div class="field col-2"><label>측정 단계</label><select class="select" name="stage">${RUN_STAGES.map(s => `<option value="${s}" ${s === stage ? 'selected' : ''}>${s}</option>`).join('')}</select></div>`;
     if (!items.length) {
       body.innerHTML = `${stageSel}<div class="field col-2"><div class="muted" style="padding:10px 12px;background:var(--surface-2);border-radius:10px">이 품목·공정의 <b>승인된 공정검사 규격</b>이 없습니다. 검사규격관리에 등록하면 자동 판정됩니다.<br>규격 없이 ${isSetup ? '세팅 완료' : '측정 기록'} 처리하려면 아래 [판정 없이 진행]을 누르세요.</div></div>`;
     } else {
@@ -435,7 +490,7 @@ export async function popDetail(root, params = {}) {
           : `<input class="input" type="number" step="any" data-mi="${i}" style="text-align:center">`}</td>
           <td class="center" data-mj="${i}"><span class="muted">-</span></td></tr>`;
       }).join('')}</tbody></table></div></div>
-      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} ${isSetup ? '세팅품(초물)은 <b>전 항목 OK</b>여야 작업이 진행 상태로 전환됩니다.' : '중·종물은 참고 측정으로 기록됩니다. 최종 입력값이 최종 측정값입니다.'}</div>`;
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} ${isSetup ? '초품(시제품)은 <b>전 항목 OK</b>여야 작업이 진행 상태로 전환됩니다.' : '초·중·종물은 참고 측정으로 기록됩니다. 최종 입력값이 최종 측정값입니다.'}</div>`;
     }
     const recompute = () => {
       let allOk = items.length > 0;
@@ -452,7 +507,7 @@ export async function popDetail(root, params = {}) {
     body.querySelectorAll('[data-mi]').forEach(el => el.addEventListener('input', recompute));
     body.querySelectorAll('select[data-mi]').forEach(el => el.addEventListener('change', recompute));
     openModal({
-      title: `${p.process_name} · ${isSetup ? '세팅품(초물) 측정' : '측정'}`, body, wide: true,
+      title: `${p.process_name} · ${isSetup ? '초품(시제품) 검사' : '초·중·종물 측정'}`, body, wide: true,
       footer: `<button class="btn" data-cancel>취소</button>${items.length ? '' : `<button class="btn" data-skip>판정 없이 진행</button>`}<button class="btn btn--primary" data-ok>${icon('check', 16)} 측정 저장</button>`,
       onMount: ({ footEl, close }) => {
         footEl.querySelector('[data-cancel]').onclick = close;
@@ -464,15 +519,15 @@ export async function popDetail(root, params = {}) {
               stage: st, result, detail: JSON.stringify(detail || []), worker: p.worker || getWorker(), measured_at: new Date().toISOString(),
             });
             await reloadMeas();
-            // 세팅품 OK → 인터록 해제(진행 전환)
-            if (st === '세팅품' && result === 'OK' && p.status === '세팅') {
+            // 초품 OK → 인터록 해제(진행 전환)
+            if (st === SETUP_STAGE && result === 'OK' && p.status === '세팅') {
               const upd = await db.update('work_order_processes', String(p.id), { status: '진행' });
               Object.assign(p, upd || { status: '진행' });
               await syncWoStatus();
             }
             close(); render();
-            if (st === '세팅품' && result !== 'OK') toast('세팅품 규격 미달(NG) — 조건 조정 후 재측정하세요.', 'error');
-            else if (st === '세팅품') toast('세팅품 OK — 작업이 진행 상태로 전환되었습니다.');
+            if (st === SETUP_STAGE && result !== 'OK') toast('초품 규격 미달(NG) — 조건 조정 후 재검사하세요.', 'error');
+            else if (st === SETUP_STAGE) toast('초품 OK — 작업이 진행 상태로 전환되었습니다. (다음: 초물검사)');
             else toast(`${st} 측정이 기록되었습니다.`);
           } catch (e) { toast(e.message || '측정 저장 실패', 'error'); }
         };
@@ -487,7 +542,7 @@ export async function popDetail(root, params = {}) {
             if (j !== 'OK') allOk = false;
             detail.push({ item: it.inspect_item, value: val, judge: j });
           });
-          if (isSetup && anyEmpty) { toast('세팅품은 전 항목을 측정해야 합니다.', 'error'); return; }
+          if (isSetup && anyEmpty) { toast('초품은 전 항목을 검사해야 합니다.', 'error'); return; }
           finalize(allOk ? 'OK' : 'NG', detail);
         };
       },
@@ -693,18 +748,20 @@ export async function popDetail(root, params = {}) {
     const st = p.status || '대기';
     if (st === '완료') return `<span class="badge badge--success" style="height:36px;padding:0 16px;font-size:14px">완료</span>`;
     if (st === '세팅') {
-      // 인터록: 세팅품(초물) 측정 OK 전까지 진행 불가
-      return `<span class="badge badge--warning" style="height:36px;padding:0 12px;font-size:12.5px">세팅품 측정 대기</span>
-        <button class="btn btn--pop btn--start" data-measure="세팅품">${icon('target', 18)} 세팅품 측정</button>`;
+      // 인터록: 초품(시제품) 검사 OK 전까지 진행 불가
+      return `<span class="badge badge--warning" style="height:36px;padding:0 12px;font-size:12.5px">초품검사 대기</span>
+        <button class="btn btn--pop btn--start" data-measure="${SETUP_STAGE}">${icon('target', 18)} 초품(시제품) 검사</button>`;
     }
     if (st === '진행') {
       const pend = pending4mOf(p);
       if (pend) return `<span class="badge badge--warning" style="height:36px;padding:0 14px;font-size:13px" title="4M 변경 승인 후 작업을 재개할 수 있습니다">${icon('clock', 16)} 4M 승인대기 · ${escapeHtml(pend.fm_no)}</span>`;
       const toolBtn = toolsForProcess(p.process_name).length ? `<button class="btn btn--pop" data-tool style="background:var(--surface);color:var(--text)">${icon('tool', 16)} 공구투입</button>` : '';
-      const measBtn = `<button class="btn btn--pop" data-measure="중물" style="background:var(--surface);color:var(--text)">${icon('target', 16)} 중·종물 측정</button>`;
+      const measBtn = `<button class="btn btn--pop" data-measure="초물" style="background:var(--surface);color:var(--text)">${icon('target', 16)} 초·중·종물 측정</button>`;
+      const dq = defectQtyOf(p);
+      const defectBtn = `<button class="btn btn--pop" data-defect style="background:var(--danger-bg);color:var(--danger)">${icon('alert', 16)} 불량등록${dq ? ` (${num(dq)})` : ''}</button>`;
       const fmBtn = `<button class="btn btn--pop" data-fm style="background:var(--surface);color:var(--text)">${icon('refresh', 16)} 4M 변경</button>`;
       const issueBtn = `<button class="btn btn--pop" data-issue style="background:var(--warning-bg);color:var(--warning)">${icon('alert', 16)} 이상 발생</button>`;
-      return `${toolBtn}${measBtn}${fmBtn}${issueBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
+      return `${toolBtn}${measBtn}${defectBtn}${fmBtn}${issueBtn}<button class="btn btn--pop btn--end" data-end>${icon('check', 18)} 종료</button>`;
     }
     const blocked = stepBlockReason(p);
     if (blocked) return `<button class="btn btn--pop" disabled title="${blocked} 시작 가능">${icon('clock', 18)} 대기</button>`;
@@ -780,16 +837,16 @@ export async function popDetail(root, params = {}) {
           if (!body.querySelector('[name="defect_ack"]').checked) { toast('작업 전 대표 불량 확인에 체크하세요.', 'error'); return; }
           const startAt = new Date().toISOString();
           try {
-            // 세팅품 측정 OK 전까지 '세팅' 상태 (인터록) — 측정 후 '진행' 전환
+            // 초품 검사 OK 전까지 '세팅' 상태 (인터록) — 검사 후 '진행' 전환
             const upd = await db.update('work_order_processes', id, { status: '세팅', start_at: startAt, worker, equipment });
             Object.assign(p, upd || { status: '세팅', start_at: startAt, worker, equipment });
             setWorker(worker);
             if (!snaps.some(s => String(s.process_id) === String(p.id))) await createSnapshot(p, 1, null);
             await syncWoStatus();
             close();
-            toast(`[${p.process_name}] 세팅 시작 — 세팅품(초물) 측정 OK 후 진행됩니다.`, 'info');
+            toast(`[${p.process_name}] 초품검사 대기 — 초품(시제품) OK 후 진행됩니다.`, 'info');
             render();
-            openMeasure(id, '세팅품');
+            openMeasure(id, SETUP_STAGE);
           } catch (e) { toast(e.message || '시작 실패', 'error'); }
         };
       },
@@ -801,21 +858,13 @@ export async function popDetail(root, params = {}) {
     const input = effInput(p);
     const body = document.createElement('form');
     body.className = 'form-grid';
+    const defectTotal = defectQtyOf(p); // [불량등록] 버튼으로 등록된 불량 합계
     body.innerHTML = `
       <div class="field"><label>투입수량</label><input class="input mono" name="input_qty" value="${num(input)}" readonly></div>
-      <div class="field"><label>폐기 <span class="muted">(생산수량 차감)</span></label><input class="input" name="scrap_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
-      <div class="field"><label>재작업 <span class="muted">(재작업 공정 추가)</span></label><input class="input" name="rework_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
-      <div class="field"><label>특채 <span class="muted">(사용 승인·이월)</span></label><input class="input" name="accept_qty" type="number" min="0" max="${input}" step="any" value="0"/></div>
-      <div class="field"><label>이월 양품 (자동)</label><input class="input mono" name="good_qty" value="${num(input)}" readonly></div>
+      <div class="field"><label>등록 불량 <span class="muted">(불량등록 버튼)</span></label><input class="input mono" value="${num(defectTotal)}" readonly></div>
+      <div class="field"><label>양품수량 (자동)</label><input class="input mono" name="good_qty" value="${num(Math.max(0, input - defectTotal))}" readonly></div>
       <div class="field"><label>비고</label><input class="input" name="remark" placeholder="특이사항"/></div>
-      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} 폐기·재작업은 다음 공정 이월에서 제외되며, <b>폐기분만 생산수량에서 차감</b>됩니다. 특채(사용 승인)는 양품으로 이월됩니다. 원소재 불량은 재고에서만 차감하세요.</div>`;
-    const recalc = () => {
-      const g = (n) => Number(body.querySelector(`[name="${n}"]`).value) || 0;
-      let scrap = g('scrap_qty'), rework = g('rework_qty'), accept = g('accept_qty');
-      if (scrap + rework + accept > input) { toast('불량 합계가 투입수량을 초과합니다.', 'error'); }
-      body.querySelector('[name="good_qty"]').value = num(Math.max(0, input - scrap - rework));
-    };
-    ['scrap_qty', 'rework_qty', 'accept_qty'].forEach(k => body.querySelector(`[name="${k}"]`).addEventListener('input', recalc));
+      <div class="field col-2 muted" style="background:var(--surface-2);padding:9px 12px;border-radius:10px">${icon('alert', 14)} 불량은 생산 중 <b>[불량등록]</b> 버튼으로 등록합니다. 종료 시 양품 = 투입 − 등록 불량. 재작업·특채·폐기 <b>판정은 부적합관리</b>에서 하며, 특채는 완료수량에 다시 반영·재작업은 재작업 지시가 생성됩니다.</div>`;
     openModal({
       title: `${p.process_name} 공정 종료 (투입 ${num(input)})`,
       body,
@@ -823,35 +872,27 @@ export async function popDetail(root, params = {}) {
       onMount: ({ footEl, close }) => {
         footEl.querySelector('[data-cancel]').onclick = close;
         footEl.querySelector('[data-ok]').onclick = async () => {
-          const g = (n) => Number(body.querySelector(`[name="${n}"]`).value) || 0;
-          let scrap = g('scrap_qty'), rework = g('rework_qty'), accept = g('accept_qty');
-          if (scrap + rework + accept > input) { toast('불량 합계가 투입수량을 초과합니다.', 'error'); return; }
-          const defect = scrap + rework + accept;
-          const good = Math.max(0, input - scrap - rework); // 폐기·재작업 제외, 특채는 이월
+          const defect = defectTotal;
+          const good = Math.max(0, input - defect);
           const remark = body.querySelector('[name="remark"]').value.trim();
           const endAt = new Date();
           const startAt = p.start_at ? new Date(p.start_at) : endAt;
           const workTime = Math.max(0, Math.round((endAt - startAt) / 60000));
           try {
-            const upd = await db.update('work_order_processes', id, { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, scrap_qty: scrap, rework_qty: rework, accept_qty: accept, work_time: workTime, remark });
+            const upd = await db.update('work_order_processes', id, { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, work_time: workTime, remark });
             Object.assign(p, upd || { status: '완료', end_at: endAt.toISOString(), input_qty: input, good_qty: good, defect_qty: defect, work_time: workTime, remark });
             const nm = nextMainStep(p);
             if (nm) {
               const next = p.is_rework ? (+nm.input_qty || 0) + good : good;
               try { await db.update('work_order_processes', nm.id, { input_qty: next }); nm.input_qty = next; } catch { /* noop */ }
             }
-            await createResult(p, good, defect, workTime, { scrap, rework, accept });
-            // 재작업분은 재작업 공정 추가 (NCR과 중복 생성 방지 — 여기서만 생성)
-            if (rework > 0) await createReworkStep(p, rework);
+            await createResult(p, good, defect, workTime, {});
             await syncWoStatus();
             close();
             render();
-            if (defect > 0) {
-              toast(`[${p.process_name}] 폐기 ${num(scrap)}·재작업 ${num(rework)}·특채 ${num(accept)} — 부적합 등록을 진행합니다.`, 'info');
-              openNcr({ ...p, defect_qty: defect, scrap_qty: scrap, rework_qty: rework, accept_qty: accept });
-            } else {
-              toast(`[${p.process_name}] 종료 — 생산실적이 등록되었습니다.`);
-            }
+            toast(defect > 0
+              ? `[${p.process_name}] 종료 — 양품 ${num(good)}, 불량 ${num(defect)}(부적합관리에서 판정).`
+              : `[${p.process_name}] 종료 — 생산실적이 등록되었습니다.`);
           } catch (e) { toast(e.message || '종료 실패', 'error'); }
         };
       },
